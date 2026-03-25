@@ -15,14 +15,13 @@ const SYSTEM_PROMPT = (name) =>
   `Keep answers concise (2-4 sentences). Be encouraging, empathetic, and practical. ` +
   `Give actionable health, nutrition, and workout advice. Never give medical diagnoses.`;
 
-// Smallest viable chat model — ~800 MB download, cached in IndexedDB after first load
-const MODEL_ID = 'SmolLM2-360M-Instruct-q4f16_1-MLC';
+const MODEL_ID = 'HuggingFaceTB/SmolLM2-360M-Instruct';
 
 export default function useCoachAI() {
   const [coachName] = useState(pickCoachName);
   const [status, setStatus] = useState('idle');      // idle | loading | ready | error
   const [progress, setProgress] = useState('');       // download / init progress text
-  const engineRef = useRef(null);
+  const pipelineRef = useRef(null);
   const initStarted = useRef(false);
 
   const initEngine = useCallback(async () => {
@@ -31,55 +30,64 @@ export default function useCoachAI() {
 
     try {
       setStatus('loading');
-      // Dynamic import so web-llm isn't in the main bundle
-      const webllm = await import('@mlc-ai/web-llm');
-      const engine = await webllm.CreateMLCEngine(MODEL_ID, {
-        initProgressCallback: (info) => {
-          setProgress(info.text || '');
+      setProgress('Loading AI model…');
+      const { pipeline, env } = await import('@huggingface/transformers');
+      // Use WebGPU if available, otherwise fall back to WASM (works everywhere)
+      const device = navigator.gpu ? 'webgpu' : 'wasm';
+      env.allowLocalModels = false;
+      const generator = await pipeline('text-generation', MODEL_ID, {
+        device,
+        dtype: device === 'webgpu' ? 'fp16' : 'q4',
+        progress_callback: (p) => {
+          if (p.status === 'progress' && p.total) {
+            const pct = Math.round((p.loaded / p.total) * 100);
+            setProgress(`Downloading model… ${pct}%`);
+          } else if (p.status === 'ready') {
+            setProgress('Model ready');
+          }
         },
       });
-      engineRef.current = engine;
+      pipelineRef.current = generator;
       setStatus('ready');
+      setProgress('');
     } catch (err) {
-      console.error('WebLLM init failed:', err);
+      console.error('AI init failed:', err);
       setStatus('error');
-      setProgress(err?.message || 'Browser AI not supported — using server fallback.');
+      setProgress(err?.message || 'Failed to load AI model.');
     }
   }, []);
 
-  // Start loading on mount
   useEffect(() => {
     initEngine();
   }, [initEngine]);
 
   const chat = useCallback(
     async (messages) => {
-      // If engine ready, use in-browser model
-      if (engineRef.current) {
-        const formatted = [
-          { role: 'system', content: SYSTEM_PROMPT(coachName) },
-          ...messages.map((m) => ({
-            role: m.role === 'coach' ? 'assistant' : 'user',
-            content: m.text,
-          })),
-        ];
-        const reply = await engineRef.current.chat.completions.create({
-          messages: formatted,
-          max_tokens: 256,
-          temperature: 0.7,
-        });
-        return reply.choices[0]?.message?.content || "I'm not sure — could you rephrase that?";
+      if (!pipelineRef.current) {
+        return 'AI coach is still loading — please wait a moment and try again.';
       }
 
-      // Fallback: server endpoint
-      const last = messages[messages.length - 1];
-      const res = await fetch('/api/coach/query', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 1, query: last?.text || '' }),
+      const chatMessages = [
+        { role: 'system', content: SYSTEM_PROMPT(coachName) },
+        ...messages.map((m) => ({
+          role: m.role === 'coach' ? 'assistant' : 'user',
+          content: m.text,
+        })),
+      ];
+
+      const output = await pipelineRef.current(chatMessages, {
+        max_new_tokens: 256,
+        temperature: 0.7,
+        do_sample: true,
       });
-      const data = await res.json();
-      return data.answer;
+
+      const generated = output[0]?.generated_text;
+      // generated_text is the full conversation array — grab the last assistant message
+      if (Array.isArray(generated)) {
+        const last = generated.filter((m) => m.role === 'assistant').pop();
+        return last?.content || "I'm not sure — could you rephrase that?";
+      }
+      return generated || "I'm not sure — could you rephrase that?";
     },
     [coachName]
   );

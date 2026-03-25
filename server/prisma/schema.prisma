@@ -1,0 +1,29 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  name      String?
+  password  String
+  createdAt DateTime @default(now())
+  logs      FoodLog[]
+}
+
+model FoodLog {
+  id          Int      @id @default(autoincrement())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      Int
+  meal        String
+  calories    Int
+  protein     Int
+  carbs       Int
+  fat         Int
+  loggedAt    DateTime @default(now())
+  imageUrl    String?
+}

@@ -1,0 +1,57 @@
+/* FitFlow — Noom-inspired design system */
+:root {
+  --noom-green: #00a86b;
+  --noom-green-light: #e6f9f0;
+  --noom-yellow: #f5c542;
+  --noom-yellow-light: #fef9e7;
+  --noom-red: #e74c3c;
+  --noom-red-light: #fdecea;
+  --noom-orange: #ff8c42;
+  --noom-blue: #3b82f6;
+  --noom-purple: #7c3aed;
+
+  --bg: #f8f9fa;
+  --bg-card: #ffffff;
+  --text-primary: #1a1a2e;
+  --text-secondary: #6b7280;
+  --text-muted: #9ca3af;
+  --border: #e5e7eb;
+  --border-light: #f3f4f6;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  --sans: 'Inter', system-ui, -apple-system, sans-serif;
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1117;
+    --bg-card: #1a1b23;
+    --text-primary: #f3f4f6;
+    --text-secondary: #9ca3af;
+    --text-muted: #6b7280;
+    --border: #2d2f3a;
+    --border-light: #23252f;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
+    --shadow-md: 0 4px 12px rgba(0,0,0,0.3);
+    --shadow-lg: 0 8px 24px rgba(0,0,0,0.4);
+  }
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body { min-height: 100vh; background: var(--bg); }
+#root { min-height: 100vh; }
+input, textarea, button, select { font-family: inherit; font-size: inherit; }
+a { color: var(--noom-green); text-decoration: none; }
+a:hover { text-decoration: underline; }

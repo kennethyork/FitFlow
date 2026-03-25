@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import './App.css';
 import useCoachAI from './useCoachAI';
+import AuthScreen from './AuthScreen';
+import PricingScreen from './PricingScreen';
+import useSpeech from './useSpeech';
 
 const TABS = [
   { id: 'home', icon: '🏠', label: 'Home' },
@@ -35,6 +38,12 @@ function difficultyClass(d) {
 }
 
 function App() {
+  const [token, setToken] = useState(() => localStorage.getItem('token'));
+  const [user, setUser] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
+  });
+  const [showPricing, setShowPricing] = useState(false);
+
   const [tab, setTab] = useState('home');
   const [logs, setLogs] = useState([]);
   const [meal, setMeal] = useState('');
@@ -45,12 +54,16 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [coachTyping, setCoachTyping] = useState(false);
   const { coachName, status: aiStatus, progress: aiProgress, chat: aiChat } = useCoachAI();
+  const { listening, supported: micSupported, start: startMic, stop: stopMic } = useSpeech();
+
+  const [voiceParsing, setVoiceParsing] = useState(false);
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
   const [lessons, setLessons] = useState([]);
 
   const [playlist, setPlaylist] = useState([]);
+  const [workoutCategory, setWorkoutCategory] = useState('');
   const [workoutSearchTerm, setWorkoutSearchTerm] = useState('');
   const [workoutResults, setWorkoutResults] = useState([]);
 
@@ -61,23 +74,62 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
+  const authHeaders = token
+    ? { Authorization: `Bearer ${token}` }
+    : {};
+
+  const handleAuth = (newToken, newUser) => {
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('user', JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    setToken(null);
+    setUser(null);
+    setLogs([]);
+    setHabits([]);
+    setLessons([]);
+    setPlaylist([]);
+    setChatHistory([]);
+  };
+
+  const handleUpgrade = (newToken, newUser) => {
+    localStorage.setItem('token', newToken);
+    localStorage.setItem('user', JSON.stringify(newUser));
+    setToken(newToken);
+    setUser(newUser);
+    setShowPricing(false);
+  };
+
   useEffect(() => {
+    if (!token) { setLoading(false); return; }
     (async () => {
       try {
         setLoading(true);
+        const hdrs = { Authorization: `Bearer ${token}` };
         const [logsRes, habitsRes, lessonsRes, playlistRes] = await Promise.all([
-          fetch('/api/food/logs?userId=1'),
-          fetch('/api/habits'),
-          fetch('/api/lessons'),
-          fetch('/api/workouts/playlist'),
+          fetch('/api/food/logs', { headers: hdrs }),
+          fetch('/api/habits', { headers: hdrs }),
+          fetch('/api/lessons', { headers: hdrs }),
+          fetch('/api/workouts/playlist', { headers: hdrs }),
         ]);
+
+        if (logsRes.status === 401) { handleLogout(); return; }
 
         const logsJson = await logsRes.json();
         setLogs(Array.isArray(logsJson) ? logsJson : []);
 
         if (habitsRes.ok) setHabits(await habitsRes.json());
         if (lessonsRes.ok) setLessons(await lessonsRes.json());
-        if (playlistRes.ok) setPlaylist(await playlistRes.json());
+        if (playlistRes.ok) {
+          const pData = await playlistRes.json();
+          setPlaylist(pData.workouts || pData || []);
+          setWorkoutCategory(pData.category || '');
+        }
       } catch (err) {
         console.error(err);
         setLoadError('Unable to connect to server.');
@@ -89,7 +141,7 @@ function App() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [token]);
 
   const totalCals = logs.reduce((s, l) => s + (l.calories || 0), 0);
   const totalProtein = logs.reduce((s, l) => s + (l.protein || 0), 0);
@@ -101,11 +153,10 @@ function App() {
   const addLog = async (e) => {
     e.preventDefault();
     if (!meal.trim()) return;
-    await fetch('/api/food/logs', {
+    const res = await fetch('/api/food/logs', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
-        userId: 1,
         meal,
         calories: 250,
         protein: 18,
@@ -114,7 +165,8 @@ function App() {
         imageUrl,
       }),
     });
-    const data = await fetch('/api/food/logs?userId=1').then((r) => r.json());
+    if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
+    const data = await fetch('/api/food/logs', { headers: authHeaders }).then((r) => r.json());
     setLogs(Array.isArray(data) ? data : []);
     setMeal('');
     setImageUrl('');
@@ -125,7 +177,7 @@ function App() {
     if (!file) return;
     const fd = new FormData();
     fd.append('image', file);
-    const res = await fetch('/api/food/upload', { method: 'POST', body: fd });
+    const res = await fetch('/api/food/upload', { method: 'POST', headers: authHeaders, body: fd });
     const json = await res.json();
     setImageUrl(json.imageUrl);
   };
@@ -134,20 +186,64 @@ function App() {
     if (!file) return;
     const fd = new FormData();
     fd.append('image', file);
-    const res = await fetch('/api/food/photo', { method: 'POST', body: fd });
+    const res = await fetch('/api/food/photo', { method: 'POST', headers: authHeaders, body: fd });
     const data = await res.json();
     setPhotoPredictions(data.predictions || []);
   };
 
-  const runVoiceAI = async () => {
-    if (!voiceTranscript.trim()) return;
-    const res = await fetch('/api/food/voice', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transcript: voiceTranscript }),
-    });
-    const data = await res.json();
-    setVoiceResult(data.parsed);
+  const parseVoiceTranscript = async (text) => {
+    if (!text.trim()) return;
+    setVoiceParsing(true);
+    try {
+      const prompt = [
+        { role: 'user', text: `Parse this meal description into JSON with keys: meal, calories, protein, carbs, fat, suggestions. Be realistic with estimates. Description: "${text}"` },
+      ];
+      const raw = await aiChat(prompt);
+      // Try to extract JSON from the response
+      const jsonMatch = raw.match(/\{[^}]+\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        setVoiceResult({
+          meal: parsed.meal || text,
+          calories: parsed.calories || 300,
+          protein: parsed.protein || 20,
+          carbs: parsed.carbs || 30,
+          fat: parsed.fat || 12,
+          suggestions: parsed.suggestions || '',
+        });
+      } else {
+        // Fallback: server endpoint
+        const res = await fetch('/api/food/voice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...authHeaders },
+          body: JSON.stringify({ transcript: text }),
+        });
+        const data = await res.json();
+        setVoiceResult(data.parsed);
+      }
+    } catch {
+      // Fallback: server endpoint
+      const res = await fetch('/api/food/voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ transcript: text }),
+      });
+      const data = await res.json();
+      setVoiceResult(data.parsed);
+    } finally {
+      setVoiceParsing(false);
+    }
+  };
+
+  const handleMicToggle = () => {
+    if (listening) {
+      stopMic();
+    } else {
+      startMic((text) => {
+        setVoiceTranscript(text);
+        parseVoiceTranscript(text);
+      });
+    }
   };
 
   const sendCoachQuery = async () => {
@@ -171,27 +267,34 @@ function App() {
     if (!newHabit.trim()) return;
     const res = await fetch('/api/habits', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ title: newHabit }),
     });
+    if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
     const habit = await res.json();
     setHabits((prev) => [...prev, habit]);
     setNewHabit('');
   };
 
   const toggleHabit = async (id) => {
-    const res = await fetch(`/api/habits/${id}/toggle`, { method: 'PUT' });
+    const res = await fetch(`/api/habits/${id}/toggle`, { method: 'PUT', headers: authHeaders });
     const updated = await res.json();
     setHabits((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
   };
 
   const searchWorkouts = async () => {
+    if (!workoutSearchTerm.trim()) return;
     const res = await fetch(
-      `/api/workouts/search?q=${encodeURIComponent(workoutSearchTerm)}`
+      `/api/workouts/search?q=${encodeURIComponent(workoutSearchTerm)}`,
+      { headers: authHeaders }
     );
     const data = await res.json();
-    setWorkoutResults(data.results || []);
+    setWorkoutResults(data.workouts || data.results || []);
   };
+
+  if (!token) {
+    return <AuthScreen onAuth={handleAuth} />;
+  }
 
   if (loading) {
     return (
@@ -204,6 +307,15 @@ function App() {
 
   return (
     <div className="app-shell">
+      {showPricing && (
+        <PricingScreen
+          currentTier={user?.tier || 'free'}
+          token={token}
+          onUpgrade={handleUpgrade}
+          onClose={() => setShowPricing(false)}
+        />
+      )}
+
       {/* Sidebar — desktop only */}
       <aside className="sidebar">
         <div className="sidebar-brand">
@@ -220,13 +332,28 @@ function App() {
             {t.label}
           </button>
         ))}
+        <div className="sidebar-spacer" />
+        <button className="sidebar-item" onClick={() => setShowPricing(true)}>
+          <span className="sidebar-icon">⭐</span>
+          {user?.tier === 'free' ? 'Upgrade' : 'Plan'}
+        </button>
+        <button className="sidebar-item" onClick={handleLogout}>
+          <span className="sidebar-icon">🚪</span>
+          Logout
+        </button>
       </aside>
 
       <div className="main-area">
         {/* Header */}
         <div className="app-header">
           <h1>FitFlow</h1>
-          <div className="greeting">Your personal health journey</div>
+          <div className="header-right">
+            <span className={`tier-badge ${user?.tier || 'free'}`}>{(user?.tier || 'free').toUpperCase()}</span>
+            <button className="btn btn-secondary btn-sm" onClick={() => setShowPricing(true)}>
+              {user?.tier === 'free' ? '⭐ Upgrade' : '⭐ Plan'}
+            </button>
+            <button className="btn btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
+          </div>
         </div>
 
         {/* Content */}
@@ -414,20 +541,33 @@ function App() {
 
             {/* Voice Input */}
             <div className="ai-panel">
-              <h4>🎙️ Voice Input</h4>
-              <textarea
-                className="input"
-                value={voiceTranscript}
-                rows={2}
-                onChange={(e) => setVoiceTranscript(e.target.value)}
-                placeholder="Describe your meal: 'turkey sandwich and spinach salad'"
-              />
+              <h4>🎙️ Voice Food Log</h4>
+              <div className="voice-input-row">
+                <textarea
+                  className="input"
+                  value={voiceTranscript}
+                  rows={2}
+                  onChange={(e) => setVoiceTranscript(e.target.value)}
+                  placeholder="Tap the mic or type: 'turkey sandwich and spinach salad'"
+                />
+                {micSupported && (
+                  <button
+                    className={`btn mic-btn ${listening ? 'recording' : ''}`}
+                    onClick={handleMicToggle}
+                    type="button"
+                  >
+                    {listening ? '⏹' : '🎙️'}
+                  </button>
+                )}
+              </div>
+              {listening && <div className="voice-status">🔴 Listening...</div>}
               <button
                 className="btn btn-secondary"
                 style={{ marginTop: 8 }}
-                onClick={runVoiceAI}
+                onClick={() => parseVoiceTranscript(voiceTranscript)}
+                disabled={voiceParsing || !voiceTranscript.trim()}
               >
-                Parse voice input
+                {voiceParsing ? 'Analyzing...' : 'Parse meal'}
               </button>
               {voiceResult && (
                 <div style={{ marginTop: 8, fontSize: 13 }}>
@@ -574,7 +714,7 @@ function App() {
             </div>
 
             <div className="section-title" style={{ marginTop: 20 }}>
-              Workouts
+              Today&apos;s Workouts{workoutCategory ? ` — ${workoutCategory}` : ''}
             </div>
             <div className="input-row">
               <input
@@ -582,6 +722,7 @@ function App() {
                 value={workoutSearchTerm}
                 onChange={(e) => setWorkoutSearchTerm(e.target.value)}
                 placeholder="Search workouts..."
+                onKeyDown={(e) => e.key === 'Enter' && searchWorkouts()}
               />
               <button className="btn btn-primary" onClick={searchWorkouts}>
                 🔍
@@ -590,22 +731,25 @@ function App() {
             <div className="workout-grid">
             {(workoutResults.length > 0 ? workoutResults : playlist).map(
               (item) => (
-                <div className="workout-card" key={item.id}>
-                  <div className="workout-thumb">▶</div>
+                <a
+                  className="workout-card"
+                  key={item.id}
+                  href={item.videoUrl || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  {item.thumbnail ? (
+                    <img className="workout-thumb-img" src={item.thumbnail} alt={item.title} />
+                  ) : (
+                    <div className="workout-thumb">▶</div>
+                  )}
                   <div className="workout-body">
                     <div className="title">{item.title}</div>
                     <div className="meta">
-                      {item.duration} ·{' '}
-                      <span
-                        className={`badge ${difficultyClass(
-                          item.difficulty
-                        )}`}
-                      >
-                        {item.difficulty}
-                      </span>
+                      {item.channel || ''}
                     </div>
                   </div>
-                </div>
+                </a>
               )
             )}
             </div>

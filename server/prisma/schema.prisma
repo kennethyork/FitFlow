@@ -11,6 +11,7 @@ model User {
   email     String   @unique
   name      String?
   password  String
+  tier      String   @default("free")   // free | pro | premium
   createdAt DateTime @default(now())
   logs      FoodLog[]
 }

@@ -6,7 +6,8 @@ const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 let PrismaBetterSqlite3;
 if (!process.env.VERCEL) {
-  PrismaBetterSqlite3 = require('@prisma/adapter-better-sqlite3').PrismaBetterSqlite3;
+  // Dynamic string prevents Vercel NFT from tracing these dev-only native modules
+  PrismaBetterSqlite3 = require('@prisma/adapter-' + 'better-sqlite3').PrismaBetterSqlite3;
 }
 const { PrismaD1 } = require('@prisma/adapter-d1');
 const { D1HttpDatabase } = require('./d1Client');
@@ -88,22 +89,25 @@ async function uploadToS3(filePath, fileName, mimetype) {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';
 
-// ── PayPal setup ──
-let paypalClient = null;
-let paypalOrdersController = null;
-if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) {
-  const { Client, Environment, OrdersController } = require('@paypal/paypal-server-sdk');
-  const isProd = process.env.PAYPAL_MODE === 'live';
-  paypalClient = new Client({
-    clientCredentialsAuthCredentials: {
-      oAuthClientId: process.env.PAYPAL_CLIENT_ID,
-      oAuthClientSecret: process.env.PAYPAL_CLIENT_SECRET,
-    },
-    environment: isProd ? Environment.Production : Environment.Sandbox,
+// ── PayPal setup (direct REST API — no SDK needed) ──
+const PAYPAL_BASE = process.env.PAYPAL_MODE === 'live'
+  ? 'https://api-m.paypal.com'
+  : 'https://api-m.sandbox.paypal.com';
+
+async function getPayPalAccessToken() {
+  const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString('base64');
+  const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
+    method: 'POST',
+    headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: 'grant_type=client_credentials',
   });
-  paypalOrdersController = new OrdersController(paypalClient);
-  console.log(`PayPal configured (${isProd ? 'live' : 'sandbox'})`);
+  const data = await res.json();
+  if (!res.ok) throw new Error(`PayPal auth failed: ${data.error_description || res.status}`);
+  return data.access_token;
 }
+
+const paypalConfigured = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
+if (paypalConfigured) console.log(`PayPal configured (${process.env.PAYPAL_MODE === 'live' ? 'live' : 'sandbox'})`);
 
 const PAYPAL_PRICES = {
   pro: 4.99,
@@ -226,28 +230,29 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
     }
 
     // PayPal: create order and return approval URL
-    if (paypalOrdersController && PAYPAL_PRICES[tier]) {
+    if (paypalConfigured && PAYPAL_PRICES[tier]) {
       const appUrl = process.env.APP_URL || 'http://localhost:5173';
-      const { body } = await paypalOrdersController.ordersCreate({
-        body: {
+      const accessToken = await getPayPalAccessToken();
+      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           intent: 'CAPTURE',
-          purchaseUnits: [{
-            amount: {
-              currencyCode: 'USD',
-              value: PAYPAL_PRICES[tier].toFixed(2),
-            },
+          purchase_units: [{
+            amount: { currency_code: 'USD', value: PAYPAL_PRICES[tier].toFixed(2) },
             description: PAYPAL_PLAN_NAMES[tier],
-            customId: JSON.stringify({ userId: req.user.id, tier }),
+            custom_id: JSON.stringify({ userId: req.user.id, tier }),
           }],
-          applicationContext: {
-            brandName: 'FitFlow',
-            returnUrl: `${appUrl}/?paypal_capture=pending&tier=${tier}`,
-            cancelUrl: `${appUrl}/?cancelled=true`,
-            userAction: 'PAY_NOW',
+          application_context: {
+            brand_name: 'FitFlow',
+            return_url: `${appUrl}/?paypal_capture=pending&tier=${tier}`,
+            cancel_url: `${appUrl}/?cancelled=true`,
+            user_action: 'PAY_NOW',
           },
-        },
+        }),
       });
-      const order = JSON.parse(body);
+      const order = await res.json();
+      if (!res.ok) return res.status(500).json({ error: 'PayPal order creation failed' });
       const approvalLink = order.links?.find(l => l.rel === 'approve');
       if (approvalLink) {
         return res.json({ checkoutUrl: approvalLink.href, paypalOrderId: order.id });
@@ -268,20 +273,24 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
 // PayPal: capture payment after user approves
 app.post('/api/paypal/capture', auth, async (req, res) => {
   try {
-    if (!paypalOrdersController) return res.status(400).json({ error: 'PayPal not configured' });
+    if (!paypalConfigured) return res.status(400).json({ error: 'PayPal not configured' });
     const { orderId } = req.body;
     if (!orderId) return res.status(400).json({ error: 'orderId required' });
 
-    const { body } = await paypalOrdersController.ordersCapture({ id: orderId });
-    const capture = JSON.parse(body);
+    const accessToken = await getPayPalAccessToken();
+    const captureRes = await fetch(`${PAYPAL_BASE}/v2/checkout/orders/${encodeURIComponent(orderId)}/capture`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+    });
+    const capture = await captureRes.json();
 
     if (capture.status !== 'COMPLETED') {
       return res.status(400).json({ error: 'Payment not completed', status: capture.status });
     }
 
-    // Extract tier from customId
-    const customId = capture.purchaseUnits?.[0]?.payments?.captures?.[0]?.customId
-                  || capture.purchaseUnits?.[0]?.customId;
+    // Extract tier from custom_id
+    const customId = capture.purchase_units?.[0]?.payments?.captures?.[0]?.custom_id
+                  || capture.purchase_units?.[0]?.custom_id;
     let tier = null;
     try {
       const meta = JSON.parse(customId);

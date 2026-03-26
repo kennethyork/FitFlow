@@ -13,13 +13,9 @@
   "type": "commonjs",
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1018.0",
-    "@aws-sdk/lib-storage": "^3.1018.0",
-    "@paypal/paypal-server-sdk": "^2.2.0",
-    "@prisma/adapter-better-sqlite3": "^7.5.0",
     "@prisma/adapter-d1": "^7.5.0",
     "@prisma/client": "^7.5.0",
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^12.8.0",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
@@ -27,7 +23,11 @@
     "fast-xml-parser": "^5.5.9",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
+    "multer": "^2.1.1"
+  },
+  "devDependencies": {
+    "@prisma/adapter-better-sqlite3": "^7.5.0",
+    "better-sqlite3": "^12.8.0",
     "prisma": "^7.5.0"
   }
 }

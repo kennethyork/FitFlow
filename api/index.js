@@ -1,4 +1,4 @@
-const path = require('path');
-process.env.VERCEL = '1';
-const app = require('../server/index.js');
-module.exports = app;
+// Phase 1: minimal test — does the function even boot?
+module.exports = (req, res) => {
+  res.json({ ok: true, test: 'minimal function works' });
+};

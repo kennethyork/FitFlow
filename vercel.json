@@ -1,8 +1,8 @@
 {
   "version": 2,
   "framework": null,
-  "installCommand": "bash vercel-install.sh",
-  "buildCommand": "echo 'API-only' > public/index.html",
+  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional && npx --yes prisma generate",
+  "buildCommand": "echo ok",
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {

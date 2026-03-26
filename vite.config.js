@@ -18,8 +18,8 @@ export default defineConfig({
         background_color: '#0f1117',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/FitFlow/',
-        start_url: '/FitFlow/',
+        scope: '/',
+        start_url: '/',
         icons: [
           {
             src: '/icon-192.png',

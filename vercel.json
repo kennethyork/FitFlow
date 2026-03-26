@@ -2,7 +2,7 @@
   "version": 2,
   "framework": null,
   "installCommand": "bash vercel-install.sh",
-  "buildCommand": "mkdir -p public",
+  "buildCommand": "echo 'API-only' > public/index.html",
   "outputDirectory": "public",
   "functions": {
     "api/index.js": {

@@ -96,6 +96,34 @@ const STRIPE_PRICES = {
   unlimited: process.env.STRIPE_PRICE_UNLIMITED || null,
 };
 
+// ── PayPal setup ──
+let paypalClient = null;
+let paypalOrdersController = null;
+if (process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET) {
+  const { Client, Environment, OrdersController } = require('@paypal/paypal-server-sdk');
+  const isProd = process.env.PAYPAL_MODE === 'live';
+  paypalClient = new Client({
+    clientCredentialsAuthCredentials: {
+      oAuthClientId: process.env.PAYPAL_CLIENT_ID,
+      oAuthClientSecret: process.env.PAYPAL_CLIENT_SECRET,
+    },
+    environment: isProd ? Environment.Production : Environment.Sandbox,
+  });
+  paypalOrdersController = new OrdersController(paypalClient);
+  console.log(`PayPal configured (${isProd ? 'live' : 'sandbox'})`);
+}
+
+const PAYPAL_PRICES = {
+  pro: 4.99,
+  premium: 9.99,
+  unlimited: 19.99,
+};
+const PAYPAL_PLAN_NAMES = {
+  pro: 'FitFlow Pro (Monthly)',
+  premium: 'FitFlow Premium (Monthly)',
+  unlimited: 'FitFlow Unlimited (Monthly)',
+};
+
 // ── Auth helpers ──
 function signToken(user) {
   return jwt.sign({ id: user.id, email: user.email, tier: user.tier }, JWT_SECRET, { expiresIn: '7d' });
@@ -195,7 +223,7 @@ app.get('/api/auth/me', auth, async (req, res) => {
 
 app.put('/api/auth/upgrade', auth, async (req, res) => {
   try {
-    const { tier } = req.body;
+    const { tier, paymentMethod } = req.body;
     if (!['free', 'pro', 'premium', 'unlimited'].includes(tier)) return res.status(400).json({ error: 'Invalid tier' });
 
     // Downgrade to free — no payment needed
@@ -205,8 +233,8 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
       return res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
     }
 
-    // If Stripe is configured, create checkout session
-    if (stripe && STRIPE_PRICES[tier]) {
+    // If Stripe is configured and not explicitly requesting PayPal
+    if (stripe && STRIPE_PRICES[tier] && paymentMethod !== 'paypal') {
       const session = await stripe.checkout.sessions.create({
         mode: 'subscription',
         payment_method_types: ['card'],
@@ -219,13 +247,80 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
       return res.json({ checkoutUrl: session.url });
     }
 
-    // Dev fallback: no Stripe configured, upgrade directly
+    // PayPal: create order and return approval URL
+    if (paypalOrdersController && PAYPAL_PRICES[tier]) {
+      const appUrl = process.env.APP_URL || 'http://localhost:5173';
+      const { body } = await paypalOrdersController.ordersCreate({
+        body: {
+          intent: 'CAPTURE',
+          purchaseUnits: [{
+            amount: {
+              currencyCode: 'USD',
+              value: PAYPAL_PRICES[tier].toFixed(2),
+            },
+            description: PAYPAL_PLAN_NAMES[tier],
+            customId: JSON.stringify({ userId: req.user.id, tier }),
+          }],
+          applicationContext: {
+            brandName: 'FitFlow',
+            returnUrl: `${appUrl}/?paypal_capture=pending&tier=${tier}`,
+            cancelUrl: `${appUrl}/?cancelled=true`,
+            userAction: 'PAY_NOW',
+          },
+        },
+      });
+      const order = JSON.parse(body);
+      const approvalLink = order.links?.find(l => l.rel === 'approve');
+      if (approvalLink) {
+        return res.json({ checkoutUrl: approvalLink.href, paypalOrderId: order.id });
+      }
+      return res.status(500).json({ error: 'PayPal order created but no approval link' });
+    }
+
+    // Dev fallback: no payment provider configured, upgrade directly
     const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Upgrade failed' });
+  }
+});
+
+// PayPal: capture payment after user approves
+app.post('/api/paypal/capture', auth, async (req, res) => {
+  try {
+    if (!paypalOrdersController) return res.status(400).json({ error: 'PayPal not configured' });
+    const { orderId } = req.body;
+    if (!orderId) return res.status(400).json({ error: 'orderId required' });
+
+    const { body } = await paypalOrdersController.ordersCapture({ id: orderId });
+    const capture = JSON.parse(body);
+
+    if (capture.status !== 'COMPLETED') {
+      return res.status(400).json({ error: 'Payment not completed', status: capture.status });
+    }
+
+    // Extract tier from customId
+    const customId = capture.purchaseUnits?.[0]?.payments?.captures?.[0]?.customId
+                  || capture.purchaseUnits?.[0]?.customId;
+    let tier = null;
+    try {
+      const meta = JSON.parse(customId);
+      tier = meta.tier;
+    } catch { /* ignore */ }
+
+    if (!tier || !['pro', 'premium', 'unlimited'].includes(tier)) {
+      return res.status(400).json({ error: 'Invalid tier in payment' });
+    }
+
+    const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
+    const token = signToken(user);
+    console.log(`PayPal: upgraded user ${req.user.id} to ${tier} (order ${orderId})`);
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
+  } catch (error) {
+    console.error('PayPal capture error:', error);
+    res.status(500).json({ error: 'Payment capture failed' });
   }
 });
 

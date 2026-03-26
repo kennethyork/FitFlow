@@ -12,6 +12,7 @@
   "license": "ISC",
   "type": "commonjs",
   "dependencies": {
+    "@paypal/paypal-server-sdk": "^2.2.0",
     "@prisma/adapter-better-sqlite3": "^7.5.0",
     "@prisma/adapter-d1": "^7.5.0",
     "@prisma/client": "^7.5.0",

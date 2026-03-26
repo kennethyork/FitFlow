@@ -210,6 +210,24 @@ function App() {
     setShowPricing(false);
   };
 
+  // Handle PayPal return — capture payment after redirect back
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('paypal_capture') === 'pending' && params.get('token') && token) {
+      const orderId = params.get('token');
+      const tier = params.get('tier');
+      window.history.replaceState({}, '', window.location.pathname + window.location.hash);
+      fetch(apiUrl('/api/paypal/capture'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ orderId }),
+      })
+        .then(r => r.json())
+        .then(data => { if (data.token && data.user) handleUpgrade(data.token, data.user); })
+        .catch(() => {});
+    }
+  }, [token]);
+
   useEffect(() => {
     if (!token) { setLoading(false); return; }
     (async () => {

@@ -205,6 +205,9 @@ input[type="number"] { -moz-appearance: textfield; }
 .btn-secondary { background: var(--border-light); color: var(--text-primary); }
 .btn-secondary:hover { background: var(--border); }
 .btn-outline { background: transparent; border: 1.5px solid var(--noom-green); color: var(--noom-green); }
+.btn-paypal { background: #0070ba; color: white; display: flex; align-items: center; justify-content: center; }
+.btn-paypal:hover { background: #005ea6; }
+.payment-buttons { display: flex; flex-direction: column; gap: 8px; }
 .btn-full { width: 100%; }
 
 /* Inputs */

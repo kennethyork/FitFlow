@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
+import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import './App.css';
 import useCoachAI from './useCoachAI';
 import AuthScreen from './AuthScreen';
 import OnboardingScreen from './OnboardingScreen';
 import PricingScreen from './PricingScreen';
-import useSpeech from './useSpeech';
+
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 
 const TABS = [
@@ -71,8 +72,7 @@ function App() {
   const [mealProtein, setMealProtein] = useState('');
   const [mealCarbs, setMealCarbs] = useState('');
   const [mealFat, setMealFat] = useState('');
-  const [imageUrl, setImageUrl] = useState('');
-  const [file, setFile] = useState(null);
+
   const [editingLog, setEditingLog] = useState(null);
   const [editMeal, setEditMeal] = useState('');
   const [editCals, setEditCals] = useState('');
@@ -84,10 +84,9 @@ function App() {
   const [coachQuery, setCoachQuery] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [coachTyping, setCoachTyping] = useState(false);
-  const { coachName, status: aiStatus, progress: aiProgress, chat: aiChat } = useCoachAI(user?.id);
-  const { listening, supported: micSupported, start: startMic, stop: stopMic } = useSpeech();
-
-  const [voiceParsing, setVoiceParsing] = useState(false);
+  const { coachName, chat: aiChat } = useCoachAI(user?.id);
+  const [mealSuggestions, setMealSuggestions] = useState([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
@@ -105,9 +104,8 @@ function App() {
   const [videoSearchTerm, setVideoSearchTerm] = useState('');
   const [playingVideo, setPlayingVideo] = useState(null);
 
-  const [photoPredictions, setPhotoPredictions] = useState([]);
-  const [voiceTranscript, setVoiceTranscript] = useState('');
-  const [voiceResult, setVoiceResult] = useState(null);
+  const [favoriteMeals, setFavoriteMeals] = useState([]);
+
   const [dailyMeals, setDailyMeals] = useState(null);
   const [expandedMeal, setExpandedMeal] = useState(null);
 
@@ -133,6 +131,15 @@ function App() {
   const [stepsToday, setStepsToday] = useState(0);
   const [stepInput, setStepInput] = useState('');
   const stepGoal = 10000;
+
+  // Streaks & badges
+  const [streakData, setStreakData] = useState(null);
+  // Weekly summary
+  const [weeklySummary, setWeeklySummary] = useState(null);
+  // Barcode scanner
+  const [barcodeInput, setBarcodeInput] = useState('');
+  const [barcodeScanning, setBarcodeScanning] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -240,18 +247,28 @@ function App() {
         }
 
         // Load weight, water, photos, steps
-        const [weightRes, waterRes, photosRes, stepsRes, chatRes] = await Promise.all([
+        const [weightRes, waterRes, photosRes, stepsRes, chatRes, favsRes] = await Promise.all([
           fetch('/api/weight', { headers: hdrs }),
           fetch('/api/water/today', { headers: hdrs }),
           fetch('/api/progress-photos', { headers: hdrs }),
           fetch('/api/steps/today', { headers: hdrs }),
           fetch('/api/chat', { headers: hdrs }),
+          fetch('/api/food/favorites', { headers: hdrs }),
         ]);
         if (weightRes.ok) setWeightLogs(await weightRes.json());
         if (waterRes.ok) { const w = await waterRes.json(); setWaterGlasses(w.glasses || 0); }
         if (photosRes.ok) setProgressPhotos(await photosRes.json());
         if (stepsRes.ok) { const s = await stepsRes.json(); setStepsToday(s.steps || 0); }
         if (chatRes.ok) { const msgs = await chatRes.json(); setChatHistory(Array.isArray(msgs) ? msgs : []); }
+        if (favsRes.ok) setFavoriteMeals(await favsRes.json());
+
+        // Load streaks & weekly summary
+        const [streaksRes, weeklyRes] = await Promise.all([
+          fetch('/api/progress/streaks', { headers: hdrs }),
+          fetch('/api/progress/weekly', { headers: hdrs }),
+        ]);
+        if (streaksRes.ok) setStreakData(await streaksRes.json());
+        if (weeklyRes.ok) setWeeklySummary(await weeklyRes.json());
       } catch (err) {
         console.error(err);
         setLoadError('Unable to connect to server.');
@@ -436,7 +453,7 @@ function App() {
         protein: parseInt(mealProtein, 10) || 0,
         carbs: parseInt(mealCarbs, 10) || 0,
         fat: parseInt(mealFat, 10) || 0,
-        imageUrl,
+
       }),
     });
     if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
@@ -447,8 +464,7 @@ function App() {
     setMealProtein('');
     setMealCarbs('');
     setMealFat('');
-    setImageUrl('');
-    setFile(null);
+
   };
 
   const logRecipe = async (recipe) => {
@@ -503,77 +519,108 @@ function App() {
     setEditingLog(null);
   };
 
-  const uploadImage = async () => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('image', file);
-    const res = await fetch('/api/food/upload', { method: 'POST', headers: authHeaders, body: fd });
-    const json = await res.json();
-    setImageUrl(json.imageUrl);
-  };
-
-  const runPhotoAI = async () => {
-    if (!file) return;
-    const fd = new FormData();
-    fd.append('image', file);
-    const res = await fetch('/api/food/photo', { method: 'POST', headers: authHeaders, body: fd });
-    const data = await res.json();
-    setPhotoPredictions(data.predictions || []);
-  };
-
-  const parseVoiceTranscript = async (text) => {
-    if (!text.trim()) return;
-    setVoiceParsing(true);
+  const loadFavorites = async () => {
     try {
-      const prompt = [
-        { role: 'user', text: `Parse this meal description into JSON with keys: meal, calories, protein, carbs, fat, suggestions. Be realistic with estimates. Description: "${text}"` },
-      ];
-      const raw = await aiChat(prompt);
-      // Try to extract JSON from the response
-      const jsonMatch = raw.match(/\{[^}]+\}/);
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[0]);
-        setVoiceResult({
-          meal: parsed.meal || text,
-          calories: parsed.calories || 300,
-          protein: parsed.protein || 20,
-          carbs: parsed.carbs || 30,
-          fat: parsed.fat || 12,
-          suggestions: parsed.suggestions || '',
-        });
-      } else {
-        // Fallback: server endpoint
-        const res = await fetch('/api/food/voice', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...authHeaders },
-          body: JSON.stringify({ transcript: text }),
-        });
+      const res = await fetch('/api/food/favorites', { headers: authHeaders });
+      if (res.ok) setFavoriteMeals(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  const saveFavorite = async () => {
+    if (!meal.trim()) return;
+    try {
+      const res = await fetch('/api/food/favorites', {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
+        body: JSON.stringify({ meal, calories: +mealCals || 0, protein: +mealProtein || 0, carbs: +mealCarbs || 0, fat: +mealFat || 0 }),
+      });
+      if (res.ok) {
+        const fav = await res.json();
+        setFavoriteMeals(prev => [fav, ...prev]);
+      }
+    } catch { /* ignore */ }
+  };
+
+  const deleteFavorite = async (id) => {
+    try {
+      await fetch(`/api/food/favorites/${id}`, { method: 'DELETE', headers: authHeaders });
+      setFavoriteMeals(prev => prev.filter(f => f.id !== id));
+    } catch { /* ignore */ }
+  };
+
+  const logFavorite = (fav) => {
+    setMeal(fav.meal);
+    setMealCals(String(fav.calories || ''));
+    setMealProtein(String(fav.protein || ''));
+    setMealCarbs(String(fav.carbs || ''));
+    setMealFat(String(fav.fat || ''));
+  };
+
+  const getMealSuggestions = async () => {
+    setSuggestionsLoading(true);
+    setMealSuggestions([]);
+    const remaining = Math.max(0, calGoal - totalCals);
+    try {
+      const res = await fetch(`/api/food/suggest?remaining=${remaining}&goal=${user?.goalType || 'lose'}`, { headers: authHeaders });
+      if (res.ok) {
         const data = await res.json();
-        setVoiceResult(data.parsed);
+        setMealSuggestions(data);
+      }
+    } catch { /* ignore */ }
+    setSuggestionsLoading(false);
+  };
+
+  const logSuggestion = (meal) => {
+    setMeal(meal.name);
+    setMealCals(String(meal.calories || ''));
+    setMealProtein(String(meal.protein || ''));
+    setMealCarbs(String(meal.carbs || ''));
+    setMealFat(String(meal.fat || ''));
+    setMealSuggestions([]);
+  };
+
+  // ── Streaks & Badges ──
+  const fetchStreaks = async () => {
+    try {
+      const res = await fetch('/api/progress/streaks', { headers: authHeaders });
+      if (res.ok) setStreakData(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  // ── Weekly Summary ──
+  const fetchWeeklySummary = async () => {
+    try {
+      const res = await fetch('/api/progress/weekly', { headers: authHeaders });
+      if (res.ok) setWeeklySummary(await res.json());
+    } catch { /* ignore */ }
+  };
+
+  // ── Barcode Lookup ──
+  const lookupBarcode = async () => {
+    if (!barcodeInput.trim()) return;
+    setBarcodeScanning(true);
+    setBarcodeResult(null);
+    try {
+      const res = await fetch(`/api/food/barcode/${encodeURIComponent(barcodeInput.trim())}`, { headers: authHeaders });
+      if (res.ok) {
+        setBarcodeResult(await res.json());
+      } else {
+        setBarcodeResult({ error: 'Product not found. Check the barcode and try again.' });
       }
     } catch {
-      // Fallback: server endpoint
-      const res = await fetch('/api/food/voice', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ transcript: text }),
-      });
-      const data = await res.json();
-      setVoiceResult(data.parsed);
-    } finally {
-      setVoiceParsing(false);
+      setBarcodeResult({ error: 'Unable to look up barcode. Please try again.' });
     }
+    setBarcodeScanning(false);
   };
 
-  const handleMicToggle = () => {
-    if (listening) {
-      stopMic();
-    } else {
-      startMic((text) => {
-        setVoiceTranscript(text);
-        parseVoiceTranscript(text);
-      });
-    }
+  const logBarcodeResult = () => {
+    if (!barcodeResult || barcodeResult.error) return;
+    setMeal(barcodeResult.name);
+    setMealCals(String(barcodeResult.calories || ''));
+    setMealProtein(String(barcodeResult.protein || ''));
+    setMealCarbs(String(barcodeResult.carbs || ''));
+    setMealFat(String(barcodeResult.fat || ''));
+    setBarcodeResult(null);
+    setBarcodeInput('');
   };
 
   const sendCoachQuery = async () => {
@@ -584,19 +631,69 @@ function App() {
     setCoachTyping(true);
     try {
       const history = [...chatHistory, { role: 'user', text: q }];
-      const answer = await aiChat(history);
-      setChatHistory((prev) => [...prev, { role: 'coach', text: answer }]);
+      let streamed = '';
+      const answer = await aiChat(history, {
+        onToken: (token) => {
+          streamed += token;
+          // Update last coach message in-place for live streaming
+          setChatHistory((prev) => {
+            const last = prev[prev.length - 1];
+            if (last && last.role === 'coach' && last._streaming) {
+              return [...prev.slice(0, -1), { role: 'coach', text: streamed, _streaming: true }];
+            }
+            return [...prev, { role: 'coach', text: streamed, _streaming: true }];
+          });
+          setCoachTyping(false); // hide "thinking" once first token arrives
+        },
+      });
+      // Finalize the streamed message (remove _streaming flag)
+      setChatHistory((prev) => {
+        const last = prev[prev.length - 1];
+        if (last && last._streaming) {
+          return [...prev.slice(0, -1), { role: 'coach', text: answer }];
+        }
+        return [...prev, { role: 'coach', text: answer }];
+      });
       // Persist both messages to DB
       fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: answer }] }) }).catch(() => {});
 
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
       if (askPatterns.test(q)) {
-        // Extract a reasonable task from the AI response (first sentence or line)
-        const lines = answer.split(/[.!\n]/).map(l => l.trim()).filter(l => l.length > 5 && l.length < 80);
-        let taskTitle = lines[0] || answer.slice(0, 60);
-        // Clean up generic filler prefixes
-        taskTitle = taskTitle.replace(/^(Sure!?|Here'?s?|Okay!?|I suggest|Try this:?)\s*/i, '').trim();
+        // Extract a meaningful, full-sentence task from the AI response
+        let taskTitle = '';
+
+        // Strategy 1: If response lists items after a colon, pick one
+        const colonIdx = answer.indexOf(':');
+        if (colonIdx !== -1 && colonIdx < answer.length - 10) {
+          const afterColon = answer.slice(colonIdx + 1).split(/[.!]/)[0];
+          const items = afterColon.split(',')
+            .map(s => s.trim())
+            .filter(s => s.length > 10 && s.length < 80)
+            .map(s => s.replace(/^(and|or)\s+/i, '').trim());
+          if (items.length > 0) {
+            taskTitle = items[Math.floor(Math.random() * Math.min(items.length, 4))];
+          }
+        }
+
+        // Strategy 2: Find a sentence starting with an action verb
+        if (!taskTitle) {
+          const sentences = answer.split(/(?<=[.!])\s+/).map(s => s.trim()).filter(s => s.length > 15 && s.length < 100);
+          const actionSentence = sentences.find(s =>
+            /^(try|aim|focus|start|drink|eat|walk|do|track|log|get|take|make|go|plan|add|avoid|replace|prepare|complete|stretch|hit)/i.test(s)
+          );
+          if (actionSentence) taskTitle = actionSentence.replace(/[.!]+$/, '');
+        }
+
+        // Strategy 3: Take the first full sentence
+        if (!taskTitle) {
+          const firstSentence = answer.match(/^[^.!]+[.!]/);
+          taskTitle = firstSentence ? firstSentence[0].replace(/[.!]+$/, '') : answer.slice(0, 60);
+        }
+
+        // Clean up filler prefixes and capitalize
+        taskTitle = taskTitle.replace(/^(sure!?\s*|here'?s?\s*|okay!?\s*|great[^a-z]*|i suggest\s*|try this:?\s*|focus on:?\s*)/i, '').trim();
+        taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
         if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
         try {
           const res = await fetch('/api/habits/assign', {
@@ -641,6 +738,11 @@ function App() {
     const updated = await res.json();
     if (updated.completed) hapticSuccess(); else hapticTap();
     setHabits((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
+  };
+
+  const deleteHabit = async (id) => {
+    const res = await fetch(`/api/habits/${id}`, { method: 'DELETE', headers: authHeaders });
+    if (res.ok) setHabits((prev) => prev.filter((h) => h.id !== id));
   };
 
   const searchWorkouts = async () => {
@@ -771,12 +873,12 @@ function App() {
               </div>
             )}
 
-            {/* Streak — only show when user has logged food */}
-            {logs.length > 0 && (
+            {/* Streak Banner */}
+            {(streakData?.currentStreak > 0 || logs.length > 0) && (
             <div className="streak-banner">
               <div className="flame">🔥</div>
               <div>
-                <div className="text">1 Day Streak!</div>
+                <div className="text">{streakData?.currentStreak || 1} Day Streak!</div>
                 <div className="subtext">Keep it up — consistency is key</div>
               </div>
             </div>
@@ -1068,6 +1170,91 @@ function App() {
               )}
             </div>
 
+            {/* ── Calorie History Chart ── */}
+            {weeklySummary?.calorieByDay?.length > 1 && (
+              <div className="card chart-card">
+                <div className="card-title">📊 Calorie History (7 Days)</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <BarChart data={weeklySummary.calorieByDay}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="day" stroke="#aaa" fontSize={12} />
+                    <YAxis stroke="#aaa" fontSize={12} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
+                    <Bar dataKey="calories" fill="#4CAF50" radius={[4, 4, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* ── Weight Trend Chart ── */}
+            {weightLogs.length > 2 && (
+              <div className="card chart-card">
+                <div className="card-title">📈 Weight Trend</div>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={[...weightLogs].reverse().slice(-14).map(w => ({ date: new Date(w.loggedAt).toLocaleDateString('en', { month: 'short', day: 'numeric' }), weight: w.weight }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
+                    <XAxis dataKey="date" stroke="#aaa" fontSize={11} />
+                    <YAxis stroke="#aaa" fontSize={12} domain={['dataMin - 1', 'dataMax + 1']} />
+                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
+                    <Line type="monotone" dataKey="weight" stroke="#FF9800" strokeWidth={2} dot={{ fill: '#FF9800', r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+
+            {/* ── Weekly Summary ── */}
+            {weeklySummary && (
+              <div className="card weekly-summary-card">
+                <div className="card-title">📋 Weekly Summary</div>
+                <div className="weekly-grid">
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.avgCals || 0}</div>
+                    <div className="weekly-stat-label">Avg Calories</div>
+                  </div>
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.totalProtein || 0}g</div>
+                    <div className="weekly-stat-label">Total Protein</div>
+                  </div>
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.daysLogged || 0}/7</div>
+                    <div className="weekly-stat-label">Days Logged</div>
+                  </div>
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.habitsCompleted || 0}</div>
+                    <div className="weekly-stat-label">Habits Done</div>
+                  </div>
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.avgSteps || 0}</div>
+                    <div className="weekly-stat-label">Avg Steps</div>
+                  </div>
+                  <div className="weekly-stat">
+                    <div className="weekly-stat-value">{weeklySummary.waterGoalDays || 0}</div>
+                    <div className="weekly-stat-label">Water Goals</div>
+                  </div>
+                </div>
+                {weeklySummary.weightChange !== undefined && weeklySummary.weightChange !== null && (
+                  <div className={`weekly-weight-change ${weeklySummary.weightChange < 0 ? 'loss' : weeklySummary.weightChange > 0 ? 'gain' : ''}`}>
+                    Weight this week: {weeklySummary.weightChange > 0 ? '+' : ''}{weeklySummary.weightChange} lbs
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Badges ── */}
+            {streakData?.badges && streakData.badges.length > 0 && (
+              <div className="card badges-card">
+                <div className="card-title">🏅 Badges</div>
+                <div className="badges-grid">
+                  {streakData.badges.map((badge, i) => (
+                    <div key={i} className={`badge-item ${badge.earned ? 'earned' : 'locked'}`}>
+                      <div className="badge-icon">{badge.earned ? badge.icon : '🔒'}</div>
+                      <div className="badge-name">{badge.name}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* Quick Actions */}
             <div className="quick-add">
               <button onClick={() => setTab('food')}>🍽️ Log Meal</button>
@@ -1130,6 +1317,39 @@ function App() {
               </>
             )}
 
+            {/* ── Barcode Scanner ── */}
+            <div className="card barcode-card">
+              <div className="card-title">📷 Barcode Scanner</div>
+              <div className="barcode-input-row">
+                <input
+                  className="input"
+                  value={barcodeInput}
+                  onChange={(e) => setBarcodeInput(e.target.value)}
+                  placeholder="Enter barcode number..."
+                  onKeyDown={(e) => e.key === 'Enter' && lookupBarcode()}
+                />
+                <button className="btn btn-primary btn-sm" onClick={lookupBarcode} disabled={barcodeScanning}>
+                  {barcodeScanning ? '...' : 'Look Up'}
+                </button>
+              </div>
+              {barcodeResult && !barcodeResult.error && (
+                <div className="barcode-result">
+                  <div className="barcode-result-name">{barcodeResult.name}</div>
+                  {barcodeResult.brand && <div className="barcode-result-brand">{barcodeResult.brand}</div>}
+                  <div className="barcode-result-macros">
+                    <span>{barcodeResult.calories} kcal</span>
+                    <span>{barcodeResult.protein}g P</span>
+                    <span>{barcodeResult.carbs}g C</span>
+                    <span>{barcodeResult.fat}g F</span>
+                  </div>
+                  <button className="btn btn-primary btn-sm" onClick={logBarcodeResult}>+ Log This</button>
+                </div>
+              )}
+              {barcodeResult?.error && (
+                <div className="barcode-error">{barcodeResult.error}</div>
+              )}
+            </div>
+
             <div className="section-title">Log a Meal</div>
 
             <div className="card">
@@ -1184,42 +1404,12 @@ function App() {
                     <input type="number" className="input" value={mealFat} onChange={(e) => setMealFat(e.target.value)} placeholder="g" />
                   </div>
                 </div>
-                <div className="file-upload-row">
-                  <label className="file-upload-label">
-                    <input
-                      type="file"
-                      className="file-upload-hidden"
-                      onChange={(e) => setFile(e.target.files[0])}
-                    />
-                    <span className="btn btn-secondary btn-sm">📎 Choose Photo</span>
-                    <span className="file-upload-name">{file ? file.name : 'No file selected'}</span>
-                  </label>
-                  {isNative && (
-                    <button type="button" className="btn btn-secondary btn-sm" onClick={async () => {
-                      const result = await takePhoto();
-                      if (result?.uri) {
-                        const resp = await fetch(result.uri);
-                        const blob = await resp.blob();
-                        setFile(new File([blob], `food-photo.${result.format || 'jpeg'}`, { type: `image/${result.format || 'jpeg'}` }));
-                      }
-                    }}>📸 Camera</button>
-                  )}
-                </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={uploadImage}
-                  >
-                    📷 Upload
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={runPhotoAI}
-                  >
-                    🤖 Analyze
-                  </button>
+                  {user?.tier && user.tier !== 'free' && (
+                    <button type="button" className="btn btn-secondary" onClick={saveFavorite} disabled={!meal.trim()}>
+                      ⭐ Save Favorite
+                    </button>
+                  )}
                   <button type="submit" className="btn btn-primary">
                     + Log Meal
                   </button>
@@ -1227,93 +1417,67 @@ function App() {
               </form>
             </div>
 
-            {photoPredictions.length > 0 && (
-              <div className="ai-panel">
-                <h4>🤖 AI Food Predictions</h4>
-                {photoPredictions.map((p, idx) => (
-                  <div className="prediction-item" key={idx}>
-                    <span>
-                      {p.name}{' '}
-                      <span className={`food-tag ${colorTag(p.calories)}`}>
-                        {colorTag(p.calories)}
-                      </span>
-                    </span>
-                    <span>
-                      {p.calories} kcal ({Math.round(p.confidence * 100)}%)
-                    </span>
+            {/* Quick Favorites — paid tiers only */}
+            {user?.tier && user.tier !== 'free' ? (
+              favoriteMeals.length > 0 && (
+                <div className="card">
+                  <div className="card-title">⭐ Favorites</div>
+                  <div className="favorites-list">
+                    {favoriteMeals.map(fav => (
+                      <div className="favorite-item" key={fav.id}>
+                        <div className="favorite-info" onClick={() => logFavorite(fav)}>
+                          <span className="favorite-name">{fav.meal}</span>
+                          <span className="favorite-macros">{fav.calories} kcal · {fav.protein}g P · {fav.carbs}g C · {fav.fat}g F</span>
+                        </div>
+                        <button className="favorite-del" onClick={() => deleteFavorite(fav.id)}>✕</button>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                </div>
+              )
+            ) : (
+              <div className="ai-panel" style={{ textAlign: 'center', padding: '20px 16px' }}>
+                <h4>⭐ Quick Favorites</h4>
+                <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '8px 0 12px' }}>Upgrade to Pro or higher to save and quick-log your favorite meals.</p>
+                <button className="btn btn-primary" onClick={() => setShowPricing(true)}>Upgrade</button>
               </div>
             )}
 
-            {imageUrl && (
-              <img
-                src={imageUrl}
-                style={{
-                  maxWidth: '100%',
-                  borderRadius: 12,
-                  marginBottom: 12,
-                }}
-                alt="meal"
-              />
-            )}
-
-            {/* Voice Input — paid tiers only */}
+            {/* Meal Suggestions — paid tiers only */}
             {user?.tier && user.tier !== 'free' ? (
             <div className="ai-panel">
-              <h4>🎙️ Voice Food Log</h4>
-              <div className="voice-input-row">
-                <textarea
-                  className="input"
-                  value={voiceTranscript}
-                  rows={2}
-                  onChange={(e) => setVoiceTranscript(e.target.value)}
-                  placeholder="Tap the mic or type: 'turkey sandwich and spinach salad'"
-                />
-                {micSupported && (
-                  <button
-                    className={`btn mic-btn ${listening ? 'recording' : ''}`}
-                    onClick={handleMicToggle}
-                    type="button"
-                  >
-                    {listening ? '⏹' : '🎙️'}
-                  </button>
-                )}
-              </div>
-              {listening && <div className="voice-status">🔴 Listening...</div>}
+              <h4>Meal Suggestions</h4>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '4px 0 10px' }}>
+                Get personalized meals based on your remaining {Math.max(0, calGoal - totalCals)} kcal
+              </p>
               <button
                 className="btn btn-secondary"
-                style={{ marginTop: 8 }}
-                onClick={() => parseVoiceTranscript(voiceTranscript)}
-                disabled={voiceParsing || !voiceTranscript.trim()}
+                onClick={getMealSuggestions}
+                disabled={suggestionsLoading}
               >
-                {voiceParsing ? 'Analyzing...' : 'Parse meal'}
+                {suggestionsLoading ? '⏳ Generating...' : '🍽️ Suggest Meals'}
               </button>
-              {voiceResult && (
-                <div style={{ marginTop: 8, fontSize: 13 }}>
-                  <strong>{voiceResult.meal}</strong> — {voiceResult.calories}{' '}
-                  kcal
-                  <span
-                    className={`food-tag ${colorTag(voiceResult.calories)}`}
-                  >
-                    {colorTag(voiceResult.calories)}
-                  </span>
-                  <div
-                    style={{
-                      color: 'var(--text-muted)',
-                      marginTop: 4,
-                      fontSize: 12,
-                    }}
-                  >
-                    {voiceResult.suggestions}
-                  </div>
+              {mealSuggestions.length > 0 && (
+                <div className="suggestion-list">
+                  {mealSuggestions.map((meal, i) => (
+                    <div key={i} className="suggestion-item">
+                      <div className="suggestion-header">{meal.name}</div>
+                      <div className="suggestion-macros">
+                        {meal.calories} kcal · {meal.protein}g P · {meal.carbs}g C · {meal.fat}g F
+                      </div>
+                      <div className="suggestion-actions">
+                        <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ Log</button>
+                        {meal.recipeUrl && <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">🔗 Recipe</a>}
+                      </div>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
             ) : (
             <div className="ai-panel" style={{ textAlign: 'center', padding: '20px 16px' }}>
-              <h4>🎙️ Voice Food Log</h4>
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '8px 0 12px' }}>Upgrade to Pro or higher to log meals with your voice.</p>
+              <h4>Meal Suggestions</h4>
+              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '8px 0 12px' }}>Upgrade to Pro or higher to get personalized meal suggestions based on your remaining macros.</p>
               <button className="btn btn-primary" onClick={() => setShowPricing(true)}>Upgrade</button>
             </div>
             )}
@@ -1506,6 +1670,7 @@ function App() {
                     <span className={`habit-source ${habit.source}`}>
                       {habit.source === 'coach' ? '🤖 Coach' : ''}
                     </span>
+                    <button className="habit-del" onClick={() => deleteHabit(habit.id)}>✕</button>
                   </div>
                 ))}
               </div>
@@ -1648,17 +1813,7 @@ function App() {
           <>
             <div className="section-title">Coach {coachName}</div>
 
-            {aiStatus === 'loading' && (
-              <div className="ai-status-bar">
-                <div className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
-                <span>{aiProgress || 'Loading AI model...'}</span>
-              </div>
-            )}
-            {aiStatus === 'error' && (
-              <div className="ai-status-bar warn">
-                ⚠️ Browser AI unavailable — using server fallback
-              </div>
-            )}
+
 
             <div className="coach-chat-area">
               {chatHistory.length === 0 && (

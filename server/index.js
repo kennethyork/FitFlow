@@ -74,19 +74,19 @@ function requireTier(...tiers) {
 
 // ── Tier limits ──
 const TIER_LIMITS = {
-  free:      { foodLogs: 5,   habits: 3,   coachQueries: 3,   photoAI: false, voiceAI: false },
-  pro:       { foodLogs: 50,  habits: 20,  coachQueries: 50,  photoAI: true,  voiceAI: true  },
-  premium:   { foodLogs: 200, habits: 100, coachQueries: 200, photoAI: true,  voiceAI: true  },
-  unlimited: { foodLogs: -1,  habits: -1,  coachQueries: -1,  photoAI: true,  voiceAI: true  },
+  free:      { foodLogs: 5,   habits: 3   },
+  pro:       { foodLogs: 50,  habits: 20  },
+  premium:   { foodLogs: 200, habits: 100 },
+  unlimited: { foodLogs: -1,  habits: -1  },
 };
 
 app.get('/api/tiers', (req, res) => {
   res.json({
     plans: [
       { id: 'free',      name: 'Free',      price: 0,     period: null,    features: ['5 food logs/day', '3 habits', '3 coach messages/day', 'Lessons & workouts'] },
-      { id: 'pro',       name: 'Pro',       price: 4.99,  period: 'month', features: ['50 food logs/day', '20 habits', '50 coach messages/day', 'Photo AI analysis', 'Voice to Text', 'Priority support'] },
-      { id: 'premium',   name: 'Premium',   price: 9.99,  period: 'month', features: ['200 food logs/day', '100 habits', '200 coach messages/day', 'Photo AI analysis', 'Voice to Text', 'Custom workout plans', 'Priority support', 'Early access features'] },
-      { id: 'unlimited', name: 'Unlimited', price: 19.99, period: 'month', features: ['Unlimited food logs', 'Unlimited habits', 'Unlimited coach messages', 'Photo AI analysis', 'Voice to Text', 'Custom workout plans', 'Priority support', 'Early access features', 'API access', 'Family sharing (5 members)'] },
+      { id: 'pro',       name: 'Pro',       price: 4.99,  period: 'month', features: ['50 food logs/day', '20 habits', '50 coach messages/day', 'Meal Suggestions', 'Favorite Meals', 'Priority support'] },
+      { id: 'premium',   name: 'Premium',   price: 9.99,  period: 'month', features: ['200 food logs/day', '100 habits', '200 coach messages/day', 'Meal Suggestions', 'Favorite Meals', 'Custom workout plans', 'Priority support', 'Early access features'] },
+      { id: 'unlimited', name: 'Unlimited', price: 19.99, period: 'month', features: ['Unlimited food logs', 'Unlimited habits', 'Unlimited coach messages', 'Meal Suggestions', 'Favorite Meals', 'Custom workout plans', 'Priority support', 'Early access features', 'Weekly Reports', 'Family sharing (5 members)'] },
     ],
   });
 });
@@ -297,12 +297,121 @@ app.get('/api/food/categories', (_req, res) => {
   res.json({ categories: FOOD_CATEGORIES });
 });
 
-// AI coach endpoint (basic workflow — fallback for in-browser AI)
+// ── Meal Suggestions (builds real meals from local food DB) ──
+app.get('/api/food/suggest', auth, async (req, res) => {
+  const remaining = Math.max(0, parseInt(req.query.remaining, 10) || 600);
+  const goalType = (req.query.goal || 'lose').toLowerCase();
+  const perMeal = Math.round(remaining / 3);
+
+  // Categorise foods by role
+  const proteins = FOOD_DB.filter(f => f.category === 'Protein' || f.category === 'Seafood');
+  const carbs = FOOD_DB.filter(f => ['Grains', 'Legumes'].includes(f.category));
+  const vegs = FOOD_DB.filter(f => f.category === 'Vegetables' || f.category === 'Fruits');
+  const extras = FOOD_DB.filter(f => ['Dairy', 'Nuts & Seeds', 'Snacks', 'Beverages'].includes(f.category));
+
+  function seededRand(seed) {
+    let s = seed;
+    return () => { s = (s * 1664525 + 1013904223) & 0x7fffffff; return s / 0x7fffffff; };
+  }
+
+  const baseSeed = Date.now() ^ (req.user.id * 2654435761);
+
+  function pickWeighted(arr, budget, rand) {
+    // filter to items that fit within budget, prefer items that use 20-70% of budget
+    const fits = arr.filter(f => f.calories > 0 && f.calories <= budget);
+    if (!fits.length) return null;
+    const scored = fits.map(f => {
+      const ratio = f.calories / budget;
+      const idealScore = 1 - Math.abs(ratio - 0.45); // prefer ~45% of budget
+      const proteinBonus = goalType === 'gain' ? (f.protein / 50) : goalType === 'lose' ? (f.protein / 40) : 0;
+      return { ...f, score: idealScore + proteinBonus + rand() * 0.4 };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    return scored[0];
+  }
+
+  const meals = [];
+  const usedNames = new Set();
+
+  for (let i = 0; i < 3; i++) {
+    const rand = seededRand(baseSeed + i * 7919);
+    let budget = perMeal;
+    const components = [];
+
+    // 1. Pick a protein
+    const protein = pickWeighted(proteins.filter(f => !usedNames.has(f.name)), budget, rand);
+    if (protein) {
+      components.push(protein);
+      usedNames.add(protein.name);
+      budget -= protein.calories;
+    }
+
+    // 2. Pick a carb/grain
+    if (budget > 50) {
+      const carb = pickWeighted(carbs.filter(f => !usedNames.has(f.name)), budget, rand);
+      if (carb) {
+        components.push(carb);
+        usedNames.add(carb.name);
+        budget -= carb.calories;
+      }
+    }
+
+    // 3. Pick a vegetable/fruit
+    if (budget > 20) {
+      const veg = pickWeighted(vegs.filter(f => !usedNames.has(f.name)), budget, rand);
+      if (veg) {
+        components.push(veg);
+        usedNames.add(veg.name);
+        budget -= veg.calories;
+      }
+    }
+
+    // 4. Optional extra if budget allows
+    if (budget > 40) {
+      const extra = pickWeighted(extras.filter(f => !usedNames.has(f.name)), budget, rand);
+      if (extra) {
+        components.push(extra);
+        usedNames.add(extra.name);
+      }
+    }
+
+    if (components.length === 0) continue;
+
+    const totals = components.reduce(
+      (acc, c) => ({ calories: acc.calories + c.calories, protein: acc.protein + c.protein, carbs: acc.carbs + c.carbs, fat: acc.fat + c.fat }),
+      { calories: 0, protein: 0, carbs: 0, fat: 0 }
+    );
+
+    const mealName = components.map(c => c.name.replace(/\s*\(.*?\)\s*/g, '')).join(' + ');
+    const recipeQuery = components.map(c => c.name.replace(/\s*\(.*?\)\s*/g, '')).join(' ');
+    meals.push({
+      name: mealName,
+      components,
+      ...totals,
+      recipeUrl: `https://www.google.com/search?q=${encodeURIComponent(recipeQuery + ' recipe')}`,
+    });
+  }
+
+  res.json(meals);
+});
+
+// Coach endpoint (basic fallback — coach runs client-side now)
 app.post('/api/coach/query', auth, async (req, res) => {
   try {
     const { query } = req.body;
-    const answer = `I heard: "${query}". Keep your protein high and add 10 minutes of movement now. ` +
-      'Tonight, try a small water break before bedtime to reduce late snacking.';
+    // Smart fallback responses based on keywords
+    const q = (query || '').toLowerCase();
+    const responses = [
+      "Great question! The key is consistency — focus on small, sustainable changes rather than drastic overhauls. Track your meals, stay active, and trust the process.",
+      "Here's my advice: prioritize protein at every meal, drink plenty of water, and aim for at least 30 minutes of movement daily. Small habits compound into big results!",
+      "That's something a lot of people wonder about. The most important thing is finding an approach that fits your lifestyle. What works for someone else might not work for you — and that's okay!",
+      "Focus on the fundamentals: eat whole foods, get enough sleep (7-9 hours), stay hydrated, and move your body regularly. These basics account for 90% of results.",
+      "I'd suggest starting simple — log your meals for a week to build awareness, then make one small improvement at a time. Trying to change everything at once usually backfires.",
+    ];
+    // Deterministic pick based on query
+    let hash = 0;
+    for (let i = 0; i < q.length; i++) hash = ((hash << 5) - hash + q.charCodeAt(i)) | 0;
+    const answer = responses[Math.abs(hash) % responses.length];
 
     res.json({ userId: req.user.id, query, answer, timestamp: new Date().toISOString() });
   } catch (error) {
@@ -311,37 +420,36 @@ app.post('/api/coach/query', auth, async (req, res) => {
   }
 });
 
-// Food AI skeleton endpoints (Pro+ only)
-app.post('/api/food/photo', auth, requireTier('pro', 'premium', 'unlimited'), upload.single('image'), async (req, res) => {
+// ── Favorite Meals (Pro+ only) ──
+app.get('/api/food/favorites', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
   try {
-    // TODO: connect image to AI vision model (e.g., Google Vision / custom model)
-    const predicted = [
-      { name: 'Chicken Salad', calories: 450, protein: 30, carbs: 22, fat: 24, confidence: 0.87 },
-      { name: 'Apple', calories: 95, protein: 0, carbs: 25, fat: 0, confidence: 0.74 },
-    ];
-    res.json({ predictions: predicted });
+    const favs = await prisma.favoriteMeal.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });
+    res.json(favs);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Food image analysis failed' });
+    res.status(500).json({ error: 'Failed to load favorites' });
   }
 });
 
-app.post('/api/food/voice', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
+app.post('/api/food/favorites', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
   try {
-    const { transcript } = req.body;
-    // TODO: parse transcript with NLP to structured meal
-    const parsed = {
-      meal: transcript,
-      calories: 420,
-      protein: 28,
-      carbs: 34,
-      fat: 16,
-      suggestions: 'Try adding vegetables next time for fiber and 100 kcal more',
-    };
-    res.json({ parsed });
+    const { meal, calories, protein, carbs, fat } = req.body;
+    if (!meal) return res.status(400).json({ error: 'Meal name required' });
+    const fav = await prisma.favoriteMeal.create({ data: { userId: req.user.id, meal, calories: calories || 0, protein: protein || 0, carbs: carbs || 0, fat: fat || 0 } });
+    res.json(fav);
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: 'Voice parsing failed' });
+    res.status(500).json({ error: 'Failed to save favorite' });
+  }
+});
+
+app.delete('/api/food/favorites/:id', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
+  try {
+    await prisma.favoriteMeal.deleteMany({ where: { id: parseInt(req.params.id), userId: req.user.id } });
+    res.json({ deleted: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Failed to delete favorite' });
   }
 });
 
@@ -638,46 +746,54 @@ function getMonthlyChallenges(userId, goalType, count = 2) {
   }));
 }
 
-// In-memory habit store per user
-const userHabits = {};
+// ── DB-backed habit helpers ──
+function getCurrentPeriods() {
+  const now = new Date();
+  const daily = now.toISOString().slice(0, 10);
+  const jan1 = new Date(now.getFullYear(), 0, 1);
+  const weekNum = Math.ceil(((now - jan1) / 86400000 + jan1.getDay() + 1) / 7);
+  const weekly = `${now.getFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+  const monthly = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  return { daily, weekly, monthly };
+}
 
-function getUserHabits(userId, goalType) {
-  const today = new Date().toISOString().slice(0, 10);
-  if (!userHabits[userId] || userHabits[userId].date !== today) {
-    // Preserve weekly/monthly toggles across days
-    const prevToggles = userHabits[userId]?.toggledIds || new Set();
-    const weeklyToggles = new Set([...prevToggles].filter(id => id.startsWith('weekly-')));
-    const monthlyToggles = new Set([...prevToggles].filter(id => id.startsWith('monthly-')));
+async function ensureHabits(userId, goalType) {
+  const { daily, weekly, monthly } = getCurrentPeriods();
 
-    // Check if week/month changed
-    const prevWeeklySeed = userHabits[userId]?.weeklySeed;
-    const prevMonthlySeed = userHabits[userId]?.monthlySeed;
-    const curWeeklySeed = getWeeklySeed(userId);
-    const curMonthlySeed = getMonthlySeed(userId);
+  const [dCount, wCount, mCount] = await Promise.all([
+    prisma.habit.count({ where: { userId, source: 'daily', period: daily } }),
+    prisma.habit.count({ where: { userId, source: 'weekly', period: weekly } }),
+    prisma.habit.count({ where: { userId, source: 'monthly', period: monthly } }),
+  ]);
 
-    userHabits[userId] = {
-      date: today,
-      weeklySeed: curWeeklySeed,
-      monthlySeed: curMonthlySeed,
-      daily: getDailyTasks(userId, goalType),
-      weekly: prevWeeklySeed === curWeeklySeed && userHabits[userId]?.weekly
-        ? userHabits[userId].weekly
-        : getWeeklyGoals(userId, goalType),
-      monthly: prevMonthlySeed === curMonthlySeed && userHabits[userId]?.monthly
-        ? userHabits[userId].monthly
-        : getMonthlyChallenges(userId, goalType),
-      custom: [],
-      aiAssigned: [],
-      nextCustomId: 1,
-      toggledIds: new Set([
-        ...(prevWeeklySeed === curWeeklySeed ? weeklyToggles : []),
-        ...(prevMonthlySeed === curMonthlySeed ? monthlyToggles : []),
-      ]),
-    };
+  const inserts = [];
+  if (dCount === 0) {
+    for (const t of getDailyTasks(userId, goalType))
+      inserts.push({ userId, title: t.title, source: 'daily', period: daily });
   }
-  const store = userHabits[userId];
-  const all = [...store.daily, ...store.weekly, ...store.monthly, ...store.aiAssigned, ...store.custom];
-  return all.map(h => ({ ...h, completed: store.toggledIds.has(h.id) }));
+  if (wCount === 0) {
+    for (const t of getWeeklyGoals(userId, goalType))
+      inserts.push({ userId, title: t.title, source: 'weekly', period: weekly });
+  }
+  if (mCount === 0) {
+    for (const t of getMonthlyChallenges(userId, goalType))
+      inserts.push({ userId, title: t.title, source: 'monthly', period: monthly });
+  }
+  if (inserts.length) await prisma.habit.createMany({ data: inserts });
+
+  return prisma.habit.findMany({
+    where: {
+      userId,
+      OR: [
+        { source: 'daily', period: daily },
+        { source: 'weekly', period: weekly },
+        { source: 'monthly', period: monthly },
+        { source: 'custom' },
+        { source: 'coach' },
+      ],
+    },
+    orderBy: { createdAt: 'asc' },
+  });
 }
 
 // ── Chat History API (persisted in DB) ──
@@ -706,57 +822,59 @@ app.delete('/api/chat', auth, async (req, res) => {
   res.json({ cleared: true });
 });
 
-// Habit management API
+// Habit management API (DB-backed)
 app.get('/api/habits', auth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
-  const goalType = user?.goalType || 'lose';
-  res.json(getUserHabits(req.user.id, goalType));
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
+    const habits = await ensureHabits(req.user.id, user?.goalType || 'lose');
+    res.json(habits);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to load habits' }); }
 });
 
 app.post('/api/habits', auth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true, tier: true } });
-  const goalType = user?.goalType || 'lose';
-  // ensure initialized
-  getUserHabits(req.user.id, goalType);
-  const store = userHabits[req.user.id];
-  const allCount = store.daily.length + store.aiAssigned.length + store.custom.length;
-  const limit = TIER_LIMITS[user?.tier || req.user.tier]?.habits || 3;
-  if (limit > 0 && allCount >= limit) return res.status(403).json({ error: `Habit limit (${limit}) reached. Upgrade for more.`, upgrade: true });
-  const { title } = req.body;
-  const next = { id: `custom-${store.nextCustomId++}`, title, completed: false, source: 'custom' };
-  store.custom.push(next);
-  res.status(201).json(next);
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { tier: true } });
+    const limit = TIER_LIMITS[user?.tier || 'free']?.habits || 3;
+    if (limit > 0) {
+      const count = await prisma.habit.count({ where: { userId: req.user.id, source: { in: ['custom', 'coach'] } } });
+      if (count >= limit) return res.status(403).json({ error: `Habit limit (${limit}) reached. Upgrade for more.`, upgrade: true });
+    }
+    const { title } = req.body;
+    if (!title?.trim()) return res.status(400).json({ error: 'Title required' });
+    const habit = await prisma.habit.create({ data: { userId: req.user.id, title: title.trim(), source: 'custom', period: '' } });
+    res.status(201).json(habit);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to add habit' }); }
 });
 
-// AI coach assigns a task
 app.post('/api/habits/assign', auth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
-  const goalType = user?.goalType || 'lose';
-  getUserHabits(req.user.id, goalType);
-  const store = userHabits[req.user.id];
-  const { title } = req.body;
-  if (!title || !title.trim()) return res.status(400).json({ error: 'Task title required' });
-  const next = { id: `ai-${Date.now()}`, title: title.trim(), completed: false, source: 'coach' };
-  store.aiAssigned.push(next);
-  res.status(201).json(next);
+  try {
+    const { title } = req.body;
+    if (!title?.trim()) return res.status(400).json({ error: 'Task title required' });
+    const habit = await prisma.habit.create({ data: { userId: req.user.id, title: title.trim(), source: 'coach', period: '' } });
+    res.status(201).json(habit);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to assign habit' }); }
 });
 
 app.put('/api/habits/:id/toggle', auth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
-  const goalType = user?.goalType || 'lose';
-  const all = getUserHabits(req.user.id, goalType);
-  const id = req.params.id;
-  const habit = all.find((h) => h.id === id);
-  if (!habit) return res.status(404).json({ error: 'Habit not found' });
-  const store = userHabits[req.user.id];
-  if (store.toggledIds.has(id)) {
-    store.toggledIds.delete(id);
-    habit.completed = false;
-  } else {
-    store.toggledIds.add(id);
-    habit.completed = true;
-  }
-  res.json(habit);
+  try {
+    const id = parseInt(req.params.id, 10);
+    const habit = await prisma.habit.findFirst({ where: { id, userId: req.user.id } });
+    if (!habit) return res.status(404).json({ error: 'Habit not found' });
+    const updated = await prisma.habit.update({ where: { id }, data: { completed: !habit.completed } });
+    res.json(updated);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to toggle habit' }); }
+});
+
+app.delete('/api/habits/:id', auth, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    const habit = await prisma.habit.findFirst({ where: { id, userId: req.user.id } });
+    if (!habit) return res.status(404).json({ error: 'Habit not found' });
+    if (habit.source !== 'custom' && habit.source !== 'coach')
+      return res.status(400).json({ error: 'Only custom/coach habits can be deleted' });
+    await prisma.habit.delete({ where: { id } });
+    res.json({ deleted: true });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to delete habit' }); }
 });
 
 // Lesson and workouts APIs
@@ -1170,6 +1288,150 @@ app.get('/api/steps', auth, async (req, res) => {
   try {
     const logs = await prisma.stepLog.findMany({ where: { userId: req.user.id }, orderBy: { loggedAt: 'desc' }, take: 30 });
     res.json(logs);
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Barcode Lookup (OpenFoodFacts) ──
+app.get('/api/food/barcode/:code', async (req, res) => {
+  const code = req.params.code.replace(/\D/g, '');
+  if (!code) return res.status(400).json({ error: 'Invalid barcode' });
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 6000);
+    const r = await fetch(`https://world.openfoodfacts.org/api/v0/product/${encodeURIComponent(code)}.json`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    const data = await r.json();
+    if (data.status !== 1 || !data.product) return res.status(404).json({ error: 'Product not found' });
+    const p = data.product;
+    const n = p.nutriments || {};
+    res.json({
+      name: p.product_name || p.generic_name || 'Unknown',
+      brand: p.brands || '',
+      serving: p.serving_size || p.quantity || '',
+      calories: Math.round(n['energy-kcal_100g'] || n['energy-kcal'] || 0),
+      protein: Math.round(n.proteins_100g || n.proteins || 0),
+      carbs: Math.round(n.carbohydrates_100g || n.carbohydrates || 0),
+      fat: Math.round(n.fat_100g || n.fat || 0),
+      image: p.image_front_small_url || p.image_url || null,
+      barcode: code,
+    });
+  } catch (e) {
+    console.error('Barcode lookup error:', e.message);
+    res.status(502).json({ error: 'Barcode service unavailable' });
+  }
+});
+
+// ── Streaks & Badges ──
+app.get('/api/progress/streaks', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    // Get all food log dates
+    const foodLogs = await prisma.foodLog.findMany({ where: { userId }, select: { loggedAt: true }, orderBy: { loggedAt: 'desc' } });
+    const logDates = new Set(foodLogs.map(l => l.loggedAt.toISOString().slice(0, 10)));
+
+    // Calculate current streak
+    let streak = 0;
+    const today = new Date(); today.setHours(0,0,0,0);
+    const d = new Date(today);
+    // Check today first, if not logged, check yesterday as start
+    if (!logDates.has(d.toISOString().slice(0, 10))) {
+      d.setDate(d.getDate() - 1);
+    }
+    while (logDates.has(d.toISOString().slice(0, 10))) {
+      streak++;
+      d.setDate(d.getDate() - 1);
+    }
+
+    // Total unique days logged
+    const totalDaysLogged = logDates.size;
+
+    // Total meals logged
+    const totalMeals = foodLogs.length;
+
+    // Total weight entries
+    const weightCount = await prisma.weightLog.count({ where: { userId } });
+
+    // Total habits completed (all time)
+    const habitsCompleted = await prisma.habit.count({ where: { userId, completed: true } });
+
+    // Total steps logged
+    const stepLogs = await prisma.stepLog.findMany({ where: { userId }, select: { steps: true } });
+    const totalSteps = stepLogs.reduce((s, l) => s + l.steps, 0);
+
+    // Water streaks (days with >= 8 glasses)
+    const waterLogs = await prisma.waterLog.findMany({ where: { userId, glasses: { gte: 8 } }, select: { loggedAt: true } });
+    const waterDays = waterLogs.length;
+
+    // Calculate badges
+    const badges = [];
+    if (streak >= 1) badges.push({ id: 'streak1', icon: '🔥', name: 'First Flame', desc: '1-day logging streak' });
+    if (streak >= 7) badges.push({ id: 'streak7', icon: '🔥', name: 'Week Warrior', desc: '7-day logging streak' });
+    if (streak >= 30) badges.push({ id: 'streak30', icon: '💪', name: 'Monthly Master', desc: '30-day logging streak' });
+    if (totalMeals >= 10) badges.push({ id: 'meals10', icon: '🍽️', name: 'Meal Tracker', desc: 'Logged 10 meals' });
+    if (totalMeals >= 100) badges.push({ id: 'meals100', icon: '🏅', name: 'Century Logger', desc: 'Logged 100 meals' });
+    if (totalMeals >= 500) badges.push({ id: 'meals500', icon: '👑', name: 'Meal Legend', desc: 'Logged 500 meals' });
+    if (habitsCompleted >= 10) badges.push({ id: 'habits10', icon: '✅', name: 'Habit Builder', desc: 'Completed 10 habits' });
+    if (habitsCompleted >= 50) badges.push({ id: 'habits50', icon: '⭐', name: 'Habit Champion', desc: 'Completed 50 habits' });
+    if (totalSteps >= 100000) badges.push({ id: 'steps100k', icon: '👟', name: 'Step Master', desc: '100k total steps' });
+    if (totalSteps >= 500000) badges.push({ id: 'steps500k', icon: '🏃', name: 'Marathon Walker', desc: '500k total steps' });
+    if (weightCount >= 5) badges.push({ id: 'weight5', icon: '⚖️', name: 'Weight Watcher', desc: 'Logged weight 5 times' });
+    if (weightCount >= 30) badges.push({ id: 'weight30', icon: '📈', name: 'Trend Tracker', desc: 'Logged weight 30 times' });
+    if (waterDays >= 7) badges.push({ id: 'water7', icon: '💧', name: 'Hydration Hero', desc: '7 days at water goal' });
+    if (waterDays >= 30) badges.push({ id: 'water30', icon: '🌊', name: 'Water Champion', desc: '30 days at water goal' });
+    if (totalDaysLogged >= 7) badges.push({ id: 'days7', icon: '📆', name: 'One Week In', desc: 'Logged food on 7 days' });
+    if (totalDaysLogged >= 30) badges.push({ id: 'days30', icon: '🗓️', name: 'Monthly Regular', desc: 'Logged food on 30 days' });
+
+    res.json({ streak, totalDaysLogged, totalMeals, habitsCompleted, totalSteps, waterDays, weightCount, badges });
+  } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
+});
+
+// ── Weekly Progress Summary ──
+app.get('/api/progress/weekly', auth, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const now = new Date();
+    const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7); weekAgo.setHours(0,0,0,0);
+
+    // Food logs this week
+    const foodLogs = await prisma.foodLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const totalCals = foodLogs.reduce((s, l) => s + l.calories, 0);
+    const totalProtein = foodLogs.reduce((s, l) => s + l.protein, 0);
+    const totalCarbs = foodLogs.reduce((s, l) => s + l.carbs, 0);
+    const totalFat = foodLogs.reduce((s, l) => s + l.fat, 0);
+    const avgCals = foodLogs.length ? Math.round(totalCals / 7) : 0;
+    const daysLogged = new Set(foodLogs.map(l => l.loggedAt.toISOString().slice(0, 10))).size;
+
+    // Weight change
+    const weightLogs = await prisma.weightLog.findMany({ where: { userId }, orderBy: { loggedAt: 'desc' }, take: 30 });
+    const recentWeight = weightLogs.find(w => w.loggedAt >= weekAgo);
+    const prevWeight = weightLogs.find(w => w.loggedAt < weekAgo);
+    const weightChange = (recentWeight && prevWeight) ? +(recentWeight.weight - prevWeight.weight).toFixed(1) : null;
+    const currentWeight = weightLogs[0] || null;
+
+    // Habits completed this week
+    const habits = await prisma.habit.findMany({ where: { userId, completed: true, createdAt: { gte: weekAgo } } });
+    const habitsCompleted = habits.length;
+
+    // Steps this week
+    const stepLogs = await prisma.stepLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const totalSteps = stepLogs.reduce((s, l) => s + l.steps, 0);
+    const avgSteps = stepLogs.length ? Math.round(totalSteps / 7) : 0;
+
+    // Water this week
+    const waterLogs = await prisma.waterLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const waterGoalDays = waterLogs.filter(w => w.glasses >= 8).length;
+    const avgWater = waterLogs.length ? +(waterLogs.reduce((s, w) => s + w.glasses, 0) / 7).toFixed(1) : 0;
+
+    // Calorie history by day (last 7 days)
+    const calorieByDay = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date(now); d.setDate(d.getDate() - i); d.setHours(0,0,0,0);
+      const dayStr = d.toISOString().slice(0, 10);
+      const dayCals = foodLogs.filter(l => l.loggedAt.toISOString().slice(0, 10) === dayStr).reduce((s, l) => s + l.calories, 0);
+      calorieByDay.push({ date: dayStr, day: d.toLocaleDateString('en', { weekday: 'short' }), calories: dayCals });
+    }
+
+    res.json({ totalCals, avgCals, totalProtein, totalCarbs, totalFat, daysLogged, mealsLogged: foodLogs.length, weightChange, currentWeight, habitsCompleted, totalSteps, avgSteps, waterGoalDays, avgWater, calorieByDay });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
 

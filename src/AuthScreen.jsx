@@ -11,9 +11,9 @@ export default function AuthScreen({ onAuth }) {
 
   const plans = [
     { id: 'free', name: 'Free', price: '$0', period: '', desc: '5 meals/day · 3 habits · 3 coach chats' },
-    { id: 'pro', name: 'Pro', price: '$4.99', period: '/mo', desc: '50 meals/day · 20 habits · Photo & Voice to Text' },
-    { id: 'premium', name: 'Premium', price: '$9.99', period: '/mo', desc: '200 meals/day · 100 habits · Custom workouts' },
-    { id: 'unlimited', name: 'Unlimited', price: '$19.99', period: '/mo', desc: 'No limits · API access · Family sharing (5)' },
+    { id: 'pro', name: 'Pro', price: '$4.99', period: '/mo', desc: '50 meals/day · 20 habits · Meal Suggestions · Favorites' },
+    { id: 'premium', name: 'Premium', price: '$9.99', period: '/mo', desc: '200 meals/day · 100 habits · Meal Suggestions · Custom workouts' },
+    { id: 'unlimited', name: 'Unlimited', price: '$19.99', period: '/mo', desc: 'No limits · Meal Suggestions · Weekly Reports · Family sharing' },
   ];
 
   const submit = async (e) => {

@@ -23,6 +23,8 @@ model User {
   progressPhotos ProgressPhoto[]
   stepLogs      StepLog[]
   chatMessages  ChatMessage[]
+  favoriteMeals FavoriteMeal[]
+  habits        Habit[]
 }
 
 model FoodLog {
@@ -78,5 +80,28 @@ model ChatMessage {
   userId    Int
   role      String   // 'user' | 'coach'
   text      String
+  createdAt DateTime @default(now())
+}
+
+model FavoriteMeal {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  meal      String
+  calories  Int
+  protein   Int
+  carbs     Int
+  fat       Int
+  createdAt DateTime @default(now())
+}
+
+model Habit {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  title     String
+  source    String   // 'daily' | 'weekly' | 'monthly' | 'custom' | 'coach'
+  completed Boolean  @default(false)
+  period    String   @default("") // 'YYYY-MM-DD' | 'YYYY-WXX' | 'YYYY-MM' | ''
   createdAt DateTime @default(now())
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import './App.css';
+import { apiUrl } from './api';
 import useCoachAI from './useCoachAI';
 import AuthScreen from './AuthScreen';
 import OnboardingScreen from './OnboardingScreen';
@@ -217,7 +218,7 @@ function App() {
         const hdrs = { Authorization: `Bearer ${token}` };
 
         // Refresh user profile (picks up onboarded, calorieGoal, etc.)
-        const meRes = await fetch('/api/auth/me', { headers: hdrs });
+        const meRes = await fetch(apiUrl('/api/auth/me'), { headers: hdrs });
         if (meRes.status === 401) { handleLogout(); return; }
         if (meRes.ok) {
           const freshUser = await meRes.json();
@@ -227,10 +228,10 @@ function App() {
         }
 
         const [logsRes, habitsRes, playlistRes, mealsRes] = await Promise.all([
-          fetch('/api/food/logs', { headers: hdrs }),
-          fetch('/api/habits', { headers: hdrs }),
-          fetch('/api/workouts/playlist', { headers: hdrs }),
-          fetch('/api/meals', { headers: hdrs }),
+          fetch(apiUrl('/api/food/logs'), { headers: hdrs }),
+          fetch(apiUrl('/api/habits'), { headers: hdrs }),
+          fetch(apiUrl('/api/workouts/playlist'), { headers: hdrs }),
+          fetch(apiUrl('/api/meals'), { headers: hdrs }),
         ]);
 
         const logsJson = await logsRes.json();
@@ -246,12 +247,12 @@ function App() {
 
         // Load weight, water, photos, steps
         const [weightRes, waterRes, photosRes, stepsRes, chatRes, favsRes] = await Promise.all([
-          fetch('/api/weight', { headers: hdrs }),
-          fetch('/api/water/today', { headers: hdrs }),
-          fetch('/api/progress-photos', { headers: hdrs }),
-          fetch('/api/steps/today', { headers: hdrs }),
-          fetch('/api/chat', { headers: hdrs }),
-          fetch('/api/food/favorites', { headers: hdrs }),
+          fetch(apiUrl('/api/weight'), { headers: hdrs }),
+          fetch(apiUrl('/api/water/today'), { headers: hdrs }),
+          fetch(apiUrl('/api/progress-photos'), { headers: hdrs }),
+          fetch(apiUrl('/api/steps/today'), { headers: hdrs }),
+          fetch(apiUrl('/api/chat'), { headers: hdrs }),
+          fetch(apiUrl('/api/food/favorites'), { headers: hdrs }),
         ]);
         if (weightRes.ok) setWeightLogs(await weightRes.json());
         if (waterRes.ok) { const w = await waterRes.json(); setWaterGlasses(w.glasses || 0); }
@@ -262,8 +263,8 @@ function App() {
 
         // Load streaks & weekly summary
         const [streaksRes, weeklyRes] = await Promise.all([
-          fetch('/api/progress/streaks', { headers: hdrs }),
-          fetch('/api/progress/weekly', { headers: hdrs }),
+          fetch(apiUrl('/api/progress/streaks'), { headers: hdrs }),
+          fetch(apiUrl('/api/progress/weekly'), { headers: hdrs }),
         ]);
         if (streaksRes.ok) setStreakData(await streaksRes.json());
         if (weeklyRes.ok) setWeeklySummary(await weeklyRes.json());
@@ -312,7 +313,7 @@ function App() {
   const logWeight = async () => {
     if (!weightInput) return;
     hapticTap();
-    const res = await fetch('/api/weight', {
+    const res = await fetch(apiUrl('/api/weight'), {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ weight: parseFloat(weightInput), unit: weightUnit }),
     });
@@ -329,7 +330,7 @@ function App() {
     if (next >= waterGoal && waterGlasses < waterGoal) hapticSuccess();
     else hapticTap();
     setWaterGlasses(next);
-    await fetch('/api/water', {
+    await fetch(apiUrl('/api/water'), {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ glasses: next }),
     });
@@ -341,7 +342,7 @@ function App() {
     const fd = new FormData();
     fd.append('image', photoFile);
     fd.append('note', photoNote);
-    const res = await fetch('/api/progress-photos', {
+    const res = await fetch(apiUrl('/api/progress-photos'), {
       method: 'POST', headers: { ...authHeaders }, body: fd,
     });
     if (res.ok) {
@@ -363,7 +364,7 @@ function App() {
   const logSteps = async () => {
     if (!stepInput) return;
     hapticTap();
-    const res = await fetch('/api/steps', {
+    const res = await fetch(apiUrl('/api/steps'), {
       method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ steps: parseInt(stepInput, 10) }),
     });
@@ -378,7 +379,7 @@ function App() {
     const { steps, source } = await readNativeSteps();
     if (steps > 0) {
       hapticTap();
-      const res = await fetch('/api/steps', {
+      const res = await fetch(apiUrl('/api/steps'), {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ steps }),
       });
@@ -393,7 +394,7 @@ function App() {
     if (isNative && token) {
       readNativeSteps().then(({ steps }) => {
         if (steps > 0) {
-          fetch('/api/steps', {
+          fetch(apiUrl('/api/steps'), {
             method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({ steps }),
           }).then(r => r.ok ? r.json() : null).then(log => {
@@ -441,7 +442,7 @@ function App() {
     e.preventDefault();
     if (!meal.trim()) return;
     hapticTap();
-    const res = await fetch('/api/food/logs', {
+    const res = await fetch(apiUrl('/api/food/logs'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
@@ -454,7 +455,7 @@ function App() {
       }),
     });
     if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
-    const data = await fetch('/api/food/logs', { headers: authHeaders }).then((r) => r.json());
+    const data = await fetch(apiUrl('/api/food/logs'), { headers: authHeaders }).then((r) => r.json());
     setLogs(Array.isArray(data) ? data : []);
     setMeal('');
     setMealCals('');
@@ -466,7 +467,7 @@ function App() {
 
   const logRecipe = async (recipe) => {
     hapticSuccess();
-    const res = await fetch('/api/food/logs', {
+    const res = await fetch(apiUrl('/api/food/logs'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
@@ -478,7 +479,7 @@ function App() {
       }),
     });
     if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
-    const data = await fetch('/api/food/logs', { headers: authHeaders }).then((r) => r.json());
+    const data = await fetch(apiUrl('/api/food/logs'), { headers: authHeaders }).then((r) => r.json());
     setLogs(Array.isArray(data) ? data : []);
   };
 
@@ -518,7 +519,7 @@ function App() {
 
   const loadFavorites = async () => {
     try {
-      const res = await fetch('/api/food/favorites', { headers: authHeaders });
+      const res = await fetch(apiUrl('/api/food/favorites'), { headers: authHeaders });
       if (res.ok) setFavoriteMeals(await res.json());
     } catch { /* ignore */ }
   };
@@ -526,7 +527,7 @@ function App() {
   const saveFavorite = async () => {
     if (!meal.trim()) return;
     try {
-      const res = await fetch('/api/food/favorites', {
+      const res = await fetch(apiUrl('/api/food/favorites'), {
         method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
         body: JSON.stringify({ meal, calories: +mealCals || 0, protein: +mealProtein || 0, carbs: +mealCarbs || 0, fat: +mealFat || 0 }),
       });
@@ -578,7 +579,7 @@ function App() {
   // ── Streaks & Badges ──
   const fetchStreaks = async () => {
     try {
-      const res = await fetch('/api/progress/streaks', { headers: authHeaders });
+      const res = await fetch(apiUrl('/api/progress/streaks'), { headers: authHeaders });
       if (res.ok) setStreakData(await res.json());
     } catch { /* ignore */ }
   };
@@ -586,7 +587,7 @@ function App() {
   // ── Weekly Summary ──
   const fetchWeeklySummary = async () => {
     try {
-      const res = await fetch('/api/progress/weekly', { headers: authHeaders });
+      const res = await fetch(apiUrl('/api/progress/weekly'), { headers: authHeaders });
       if (res.ok) setWeeklySummary(await res.json());
     } catch { /* ignore */ }
   };
@@ -652,7 +653,7 @@ function App() {
         return [...prev, { role: 'coach', text: answer }];
       });
       // Persist both messages to DB
-      fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: answer }] }) }).catch(() => {});
+      fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: answer }] }) }).catch(() => {});
 
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
@@ -693,7 +694,7 @@ function App() {
         taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
         if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
         try {
-          const res = await fetch('/api/habits/assign', {
+          const res = await fetch(apiUrl('/api/habits/assign'), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...authHeaders },
             body: JSON.stringify({ title: taskTitle }),
@@ -703,14 +704,14 @@ function App() {
             setHabits((prev) => [...prev, newTask]);
             const taskMsg = `✅ I've added "${taskTitle}" to your daily tasks!`;
             setChatHistory((prev) => [...prev, { role: 'coach', text: taskMsg }]);
-            fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'coach', text: taskMsg }] }) }).catch(() => {});
+            fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'coach', text: taskMsg }] }) }).catch(() => {});
           }
         } catch { /* ignore assign error */ }
       }
     } catch {
       const errMsg = "Sorry, I couldn't process that. Try again!";
       setChatHistory((prev) => [...prev, { role: 'coach', text: errMsg }]);
-      fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: errMsg }] }) }).catch(() => {});
+      fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: errMsg }] }) }).catch(() => {});
     } finally {
       setCoachTyping(false);
     }
@@ -719,7 +720,7 @@ function App() {
   const addHabit = async () => {
     if (!newHabit.trim()) return;
     hapticTap();
-    const res = await fetch('/api/habits', {
+    const res = await fetch(apiUrl('/api/habits'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({ title: newHabit }),
@@ -755,7 +756,7 @@ function App() {
   // ── Video browse helpers ──
   const loadVideoTabs = async () => {
     try {
-      const res = await fetch('/api/videos/tabs', { headers: authHeaders });
+      const res = await fetch(apiUrl('/api/videos/tabs'), { headers: authHeaders });
       if (res.ok) setVideoTabs(await res.json());
     } catch (e) { console.error('Failed to load video tabs', e); }
   };

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from './api';
 
 export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login'); // login | signup
@@ -21,7 +22,7 @@ export default function AuthScreen({ onAuth }) {
     setError('');
     setLoading(true);
     try {
-      const endpoint = mode === 'login' ? '/api/auth/login' : '/api/auth/signup';
+      const endpoint = mode === 'login' ? apiUrl('/api/auth/login') : apiUrl('/api/auth/signup');
       const body = mode === 'login' ? { email, password } : { email, password, name, tier: selectedPlan };
       const res = await fetch(endpoint, {
         method: 'POST',

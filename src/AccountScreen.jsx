@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from './api';
 
 export default function AccountScreen({ user, token, onUpdate, onLogout, onShowPricing }) {
   const [name, setName] = useState(user?.name || '');
@@ -23,7 +24,7 @@ export default function AccountScreen({ user, token, onUpdate, onLogout, onShowP
   const saveProfile = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/api/auth/profile', {
+      const res = await fetch(apiUrl('/api/auth/profile'), {
         method: 'PUT', headers: hdrs,
         body: JSON.stringify({ name: name.trim(), email: email.trim(), goalType, activityLevel, calorieGoal: Number(calorieGoal) }),
       });
@@ -39,7 +40,7 @@ export default function AccountScreen({ user, token, onUpdate, onLogout, onShowP
     if (newPassword.length < 6) return showMsg('New password must be 6+ characters', false);
     setSaving(true);
     try {
-      const res = await fetch('/api/auth/password', {
+      const res = await fetch(apiUrl('/api/auth/password'), {
         method: 'PUT', headers: hdrs,
         body: JSON.stringify({ currentPassword, newPassword }),
       });
@@ -54,7 +55,7 @@ export default function AccountScreen({ user, token, onUpdate, onLogout, onShowP
     if (!deletePassword) return showMsg('Enter your password to confirm', false);
     setSaving(true);
     try {
-      const res = await fetch('/api/auth/account', {
+      const res = await fetch(apiUrl('/api/auth/account'), {
         method: 'DELETE', headers: hdrs,
         body: JSON.stringify({ password: deletePassword }),
       });

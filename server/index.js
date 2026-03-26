@@ -21,8 +21,11 @@ const app = express();
 
 // ── Security middleware ──
 app.use(helmet({ contentSecurityPolicy: false }));
+const corsOrigin = process.env.CORS_ORIGIN
+  ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
+  : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'];
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'],
+  origin: corsOrigin,
   credentials: true,
 }));
 app.use(express.json({ limit: '1mb' }));

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { apiUrl } from './api';
 
 const GOALS = [
   { id: 'lose', icon: '🔥', title: 'Lose Weight', desc: 'Burn fat and get lean' },
@@ -30,7 +31,7 @@ export default function OnboardingScreen({ token, onComplete }) {
   const finish = async () => {
     setSaving(true);
     try {
-      const res = await fetch('/api/auth/onboard', {
+      const res = await fetch(apiUrl('/api/auth/onboard'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({

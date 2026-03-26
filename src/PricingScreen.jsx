@@ -1,18 +1,19 @@
 import { useState, useEffect } from 'react';
+import { apiUrl } from './api';
 
 export default function PricingScreen({ currentTier, token, onUpgrade, onClose }) {
   const [plans, setPlans] = useState([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    fetch('/api/tiers').then((r) => r.json()).then((d) => setPlans(d.plans || [])).catch(() => {});
+    fetch(apiUrl('/api/tiers')).then((r) => r.json()).then((d) => setPlans(d.plans || [])).catch(() => {});
   }, []);
 
   const upgrade = async (tier) => {
     if (tier === currentTier) return;
     setLoading(true);
     try {
-      const res = await fetch('/api/auth/upgrade', {
+      const res = await fetch(apiUrl('/api/auth/upgrade'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ tier }),

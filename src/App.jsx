@@ -13,7 +13,7 @@ const TABS = [
   { id: 'home', icon: '🏠', label: 'Home' },
   { id: 'food', icon: '🍽️', label: 'Food' },
   { id: 'habits', icon: '✅', label: 'Habits' },
-  { id: 'learn', icon: '📖', label: 'Learn' },
+  { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'coach', icon: '💬', label: 'Coach' },
   { id: 'account', icon: '⚙️', label: 'Account' },
 ];
@@ -49,7 +49,7 @@ function App() {
   });
   const [showPricing, setShowPricing] = useState(false);
 
-  const VALID_TABS = ['home', 'food', 'habits', 'learn', 'coach'];
+  const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
     const h = window.location.hash.replace('#', '');
     return VALID_TABS.includes(h) ? h : 'home';
@@ -92,7 +92,6 @@ function App() {
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
-  const [lessons, setLessons] = useState([]);
 
   const [playlist, setPlaylist] = useState([]);
   const [workoutCategory, setWorkoutCategory] = useState('');
@@ -198,7 +197,6 @@ function App() {
     setUser(null);
     setLogs([]);
     setHabits([]);
-    setLessons([]);
     setPlaylist([]);
     setChatHistory([]);
   };
@@ -228,10 +226,9 @@ function App() {
           if (!freshUser.onboarded) { setLoading(false); return; }
         }
 
-        const [logsRes, habitsRes, lessonsRes, playlistRes, mealsRes] = await Promise.all([
+        const [logsRes, habitsRes, playlistRes, mealsRes] = await Promise.all([
           fetch('/api/food/logs', { headers: hdrs }),
           fetch('/api/habits', { headers: hdrs }),
-          fetch('/api/lessons', { headers: hdrs }),
           fetch('/api/workouts/playlist', { headers: hdrs }),
           fetch('/api/meals', { headers: hdrs }),
         ]);
@@ -240,7 +237,6 @@ function App() {
         setLogs(Array.isArray(logsJson) ? logsJson : []);
 
         if (habitsRes.ok) setHabits(await habitsRes.json());
-        if (lessonsRes.ok) setLessons(await lessonsRes.json());
         if (mealsRes.ok) setDailyMeals(await mealsRes.json());
         if (playlistRes.ok) {
           const pData = await playlistRes.json();
@@ -276,7 +272,6 @@ function App() {
         setLoadError('Unable to connect to server.');
         setLogs([]);
         setHabits([]);
-        setLessons([]);
         setPlaylist([]);
       } finally {
         setLoading(false);
@@ -781,7 +776,7 @@ function App() {
   };
 
   useEffect(() => {
-    if (tab === 'learn' && token) {
+    if (tab === 'videos' && token) {
       if (videoTabs.length === 0) loadVideoTabs();
       loadBrowseVideos(activeVideoTab);
     }
@@ -1014,31 +1009,6 @@ function App() {
               )}
             </div>
             </div>
-
-            {/* Next Lesson */}
-            {lessons.length > 0 && (
-              <div
-                className="card"
-                onClick={() => setTab('learn')}
-                style={{ cursor: 'pointer' }}
-              >
-                <div className="card-title">Continue Learning</div>
-                <div
-                  style={{ display: 'flex', alignItems: 'center', gap: 12 }}
-                >
-                  <div className="lesson-thumb">📖</div>
-                  <div className="lesson-body">
-                    <div className="title">{lessons[0].title}</div>
-                    <div className="progress-bar">
-                      <div
-                        className="fill"
-                        style={{ width: `${lessons[0].progress}%` }}
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ── Weight Tracking ── */}
             <div className="card weight-card">
@@ -1294,7 +1264,7 @@ function App() {
             <div className="quick-add">
               <button onClick={() => setTab('food')}>🍽️ Log Meal</button>
               <button onClick={() => setTab('coach')}>💬 Ask Coach</button>
-              <button onClick={() => setTab('learn')}>📖 Lessons</button>
+              <button onClick={() => setTab('videos')}>🎬 Videos</button>
             </div>
           </>
         )}
@@ -1733,38 +1703,10 @@ function App() {
           </>
         )}
 
-        {/* ═══════ LEARN TAB ═══════ */}
-        {tab === 'learn' && (
+        {/* ═══════ VIDEOS TAB ═══════ */}
+        {tab === 'videos' && (
           <>
-            <div className="section-title">Your Lessons</div>
-            {lessons.length === 0 && (
-              <div className="card empty-state">
-                <div className="empty-state-icon">📖</div>
-                <div className="empty-state-title">Lessons loading...</div>
-                <div className="empty-state-text">Educational content about nutrition, fitness, and healthy habits will appear here.</div>
-              </div>
-            )}
-            <div className="lesson-grid">
-            {lessons.map((lesson) => (
-              <div className="lesson-card" key={lesson.id}>
-                <div className="lesson-thumb">📖</div>
-                <div className="lesson-body">
-                  <div className="title">{lesson.title}</div>
-                  <div className="subtitle">{lesson.progress}% complete</div>
-                  <div className="progress-bar">
-                    <div
-                      className="fill"
-                      style={{ width: `${lesson.progress}%` }}
-                    />
-                  </div>
-                </div>
-              </div>
-            ))}
-            </div>
-
-            <div className="section-title" style={{ marginTop: 20 }}>
-              Browse Videos
-            </div>
+            <div className="section-title">Browse Videos</div>
 
             {/* Video tab pills */}
             <div className="video-tab-bar">

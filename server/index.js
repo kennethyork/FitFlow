@@ -5,6 +5,8 @@ const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+const { PrismaD1 } = require('@prisma/adapter-d1');
+const { D1HttpDatabase } = require('./d1Client');
 const AWS = require('aws-sdk');
 const fs = require('fs');
 const path = require('path');
@@ -32,10 +34,22 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
 app.use('/api/', apiLimiter);
 
-const adapter = new PrismaBetterSqlite3({
-  url: process.env.DATABASE_URL,
-});
-const prisma = new PrismaClient({ adapter });
+// ── Database adapter ──
+let prisma;
+if (process.env.D1_DATABASE_ID) {
+  const d1 = new D1HttpDatabase({
+    accountId: process.env.D1_ACCOUNT_ID,
+    databaseId: process.env.D1_DATABASE_ID,
+    apiToken: process.env.D1_API_TOKEN,
+  });
+  const adapter = new PrismaD1(d1);
+  prisma = new PrismaClient({ adapter });
+  console.log('Using Cloudflare D1 database');
+} else {
+  const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
+  prisma = new PrismaClient({ adapter });
+  console.log('Using local SQLite database');
+}
 const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
 const s3Config = { region: process.env.AWS_REGION };
@@ -1012,7 +1026,20 @@ app.delete('/api/habits/:id', auth, async (req, res) => {
 });
 
 // Lesson and workouts APIs
-const lessons = [];
+const lessons = [
+  { id: 1, title: 'Understanding Calories', progress: 0, category: 'nutrition', content: 'Calories are units of energy. Your body needs a certain amount each day to function. Eating fewer calories than you burn leads to weight loss, while eating more leads to weight gain.' },
+  { id: 2, title: 'Macros 101: Protein', progress: 0, category: 'nutrition', content: 'Protein is essential for muscle repair and growth. Aim for 0.7–1g per pound of body weight. Great sources include chicken, fish, eggs, Greek yogurt, and legumes.' },
+  { id: 3, title: 'Macros 101: Carbs & Fats', progress: 0, category: 'nutrition', content: 'Carbs are your body\'s main energy source. Fats support hormone production and nutrient absorption. Neither is "bad" — balance and quality matter most.' },
+  { id: 4, title: 'Building Healthy Habits', progress: 0, category: 'mindset', content: 'Start small. Stack new habits onto existing routines. Track consistency, not perfection. It takes roughly 66 days for a new behavior to become automatic.' },
+  { id: 5, title: 'Hydration & Performance', progress: 0, category: 'nutrition', content: 'Water makes up ~60% of your body. Even mild dehydration reduces focus and energy. Aim for 8+ glasses daily, more if you exercise.' },
+  { id: 6, title: 'Strength Training Basics', progress: 0, category: 'fitness', content: 'Compound movements (squat, deadlift, bench, row) build the most muscle efficiently. Start with 3 sessions per week, focusing on progressive overload.' },
+  { id: 7, title: 'Cardio: Finding Your Zone', progress: 0, category: 'fitness', content: 'Zone 2 cardio (conversational pace) burns fat and builds endurance. HIIT burns more calories in less time. A mix of both is optimal.' },
+  { id: 8, title: 'Sleep & Recovery', progress: 0, category: 'mindset', content: '7–9 hours of sleep is critical for muscle recovery, hormone regulation, and appetite control. Poor sleep increases cravings and cortisol.' },
+  { id: 9, title: 'Reading Food Labels', progress: 0, category: 'nutrition', content: 'Check serving size first. Compare calories, protein, fiber, and added sugars. Ingredients are listed by weight — the first few matter most.' },
+  { id: 10, title: 'Meal Prep Strategies', progress: 0, category: 'nutrition', content: 'Prep proteins and grains in bulk on Sunday. Store in portions. Having healthy food ready makes it 3x easier to stick to your plan.' },
+  { id: 11, title: 'Managing Plateaus', progress: 0, category: 'mindset', content: 'Weight loss plateaus are normal. Your metabolism adapts. Solutions: adjust calories, change exercise routine, ensure adequate sleep, and be patient.' },
+  { id: 12, title: 'Mindful Eating', progress: 0, category: 'mindset', content: 'Eat slowly, without screens. Notice hunger and fullness cues. Chewing thoroughly improves digestion and helps you eat less naturally.' },
+];
 app.get('/api/lessons', auth, (req, res) => res.json(lessons));
 
 // ── Video API (YouTube RSS channel feeds — legal, no API key needed) ──

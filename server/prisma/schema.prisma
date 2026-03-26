@@ -13,6 +13,9 @@ model User {
   password      String
   tier          String   @default("free")   // free | pro | premium
   onboarded     Boolean  @default(false)
+  emailVerified Boolean  @default(false)
+  verifyToken   String?
+  verifyExpires DateTime?
   goalType      String?  // lose | maintain | gain
   activityLevel String?  // sedentary | light | moderate | active
   calorieGoal   Int      @default(1800)

@@ -719,6 +719,15 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 12px;
   text-align: center;
 }
+.auth-success {
+  background: rgba(0, 168, 107, 0.12);
+  color: #00a86b;
+  padding: 10px 14px;
+  border-radius: var(--radius-sm, 10px);
+  font-size: 13px;
+  margin-bottom: 12px;
+  text-align: center;
+}
 .auth-toggle {
   margin-top: 16px;
   text-align: center;

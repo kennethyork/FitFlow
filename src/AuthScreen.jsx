@@ -1,14 +1,44 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { apiUrl } from './api';
 
 export default function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState('login'); // login | signup
+  const [mode, setMode] = useState('login'); // login | signup | verify-sent | verifying
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [selectedPlan, setSelectedPlan] = useState('free');
   const [error, setError] = useState('');
+  const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Check for ?verify= token in URL on mount
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const verifyToken = params.get('verify');
+    if (verifyToken) {
+      setMode('verifying');
+      verifyEmail(verifyToken);
+    }
+  }, []);
+
+  const verifyEmail = async (token) => {
+    try {
+      const res = await fetch(apiUrl(`/api/auth/verify?token=${encodeURIComponent(token)}`));
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Verification failed');
+        setMode('login');
+      } else {
+        setSuccess('Email verified! You can now log in.');
+        setMode('login');
+      }
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch {
+      setError('Unable to verify email');
+      setMode('login');
+    }
+  };
 
   const plans = [
     { id: 'free', name: 'Free', price: '$0', period: '', desc: '5 meals/day · 3 habits · 3 coach chats' },
@@ -20,6 +50,7 @@ export default function AuthScreen({ onAuth }) {
   const submit = async (e) => {
     e.preventDefault();
     setError('');
+    setSuccess('');
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? apiUrl('/api/auth/login') : apiUrl('/api/auth/signup');
@@ -34,6 +65,10 @@ export default function AuthScreen({ onAuth }) {
         setError(data.error || 'Something went wrong');
         return;
       }
+      if (data.needsVerification) {
+        setMode('verify-sent');
+        return;
+      }
       onAuth(data.token, data.user, mode === 'signup');
     } catch {
       setError('Unable to connect to server');
@@ -41,6 +76,36 @@ export default function AuthScreen({ onAuth }) {
       setLoading(false);
     }
   };
+
+  if (mode === 'verifying') {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-logo">🌿</div>
+          <h1 className="auth-title">FitFlow</h1>
+          <p className="auth-subtitle">Verifying your email...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (mode === 'verify-sent') {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <div className="auth-logo">📧</div>
+          <h1 className="auth-title">Check Your Email</h1>
+          <p className="auth-subtitle">
+            We sent a verification link to <strong>{email}</strong>. Click the link to activate your account, then come back and log in.
+          </p>
+          {error && <div className="auth-error">{error}</div>}
+          <button className="btn btn-primary btn-full" onClick={() => { setMode('login'); setError(''); setSuccess(''); }}>
+            Back to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="auth-screen">
@@ -98,6 +163,7 @@ export default function AuthScreen({ onAuth }) {
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           />
           {error && <div className="auth-error">{error}</div>}
+          {success && <div className="auth-success">{success}</div>}
           <button className="btn btn-primary btn-full" type="submit" disabled={loading}>
             {loading ? 'Please wait...' : mode === 'login' ? 'Log In' : 'Create Account'}
           </button>

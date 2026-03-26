@@ -53,10 +53,6 @@ PORT=4000
 JWT_SECRET=CHANGE_ME_TO_RANDOM_SECRET
 CORS_ORIGIN=https://kennethyork.github.io
 
-# Stripe (optional)
-# STRIPE_SECRET_KEY=sk_live_...
-# STRIPE_WEBHOOK_SECRET=whsec_...
-
 # S3 (optional, for progress photos)
 # AWS_REGION=us-east-1
 # AWS_ACCESS_KEY_ID=

@@ -88,14 +88,6 @@ async function uploadToS3(filePath, fileName, mimetype) {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';
 
-// ── Stripe setup ──
-const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
-const STRIPE_PRICES = {
-  pro: process.env.STRIPE_PRICE_PRO || null,
-  premium: process.env.STRIPE_PRICE_PREMIUM || null,
-  unlimited: process.env.STRIPE_PRICE_UNLIMITED || null,
-};
-
 // ── PayPal setup ──
 let paypalClient = null;
 let paypalOrdersController = null;
@@ -223,7 +215,7 @@ app.get('/api/auth/me', auth, async (req, res) => {
 
 app.put('/api/auth/upgrade', auth, async (req, res) => {
   try {
-    const { tier, paymentMethod } = req.body;
+    const { tier } = req.body;
     if (!['free', 'pro', 'premium', 'unlimited'].includes(tier)) return res.status(400).json({ error: 'Invalid tier' });
 
     // Downgrade to free — no payment needed
@@ -231,20 +223,6 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
       const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
       const token = signToken(user);
       return res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
-    }
-
-    // If Stripe is configured and not explicitly requesting PayPal
-    if (stripe && STRIPE_PRICES[tier] && paymentMethod !== 'paypal') {
-      const session = await stripe.checkout.sessions.create({
-        mode: 'subscription',
-        payment_method_types: ['card'],
-        line_items: [{ price: STRIPE_PRICES[tier], quantity: 1 }],
-        success_url: `${process.env.APP_URL || 'http://localhost:5173'}/?upgraded=${tier}`,
-        cancel_url: `${process.env.APP_URL || 'http://localhost:5173'}/?cancelled=true`,
-        client_reference_id: String(req.user.id),
-        metadata: { tier, userId: String(req.user.id) },
-      });
-      return res.json({ checkoutUrl: session.url });
     }
 
     // PayPal: create order and return approval URL
@@ -322,37 +300,6 @@ app.post('/api/paypal/capture', auth, async (req, res) => {
     console.error('PayPal capture error:', error);
     res.status(500).json({ error: 'Payment capture failed' });
   }
-});
-
-// Stripe webhook — confirm payment and upgrade tier
-app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
-  if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
-  const sig = req.headers['stripe-signature'];
-  let event;
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  } catch (err) {
-    console.error('Webhook signature verification failed:', err.message);
-    return res.status(400).json({ error: 'Webhook signature failed' });
-  }
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object;
-    const userId = parseInt(session.client_reference_id || session.metadata?.userId);
-    const tier = session.metadata?.tier;
-    if (userId && tier) {
-      await prisma.user.update({ where: { id: userId }, data: { tier } });
-      console.log(`Stripe: upgraded user ${userId} to ${tier}`);
-    }
-  }
-  if (event.type === 'customer.subscription.deleted') {
-    const sub = event.data.object;
-    const userId = parseInt(sub.metadata?.userId);
-    if (userId) {
-      await prisma.user.update({ where: { id: userId }, data: { tier: 'free' } });
-      console.log(`Stripe: downgraded user ${userId} to free (subscription canceled)`);
-    }
-  }
-  res.json({ received: true });
 });
 
 app.post('/api/auth/onboard', auth, async (req, res) => {

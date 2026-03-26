@@ -4,7 +4,10 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
-const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
+let PrismaBetterSqlite3;
+if (!process.env.VERCEL) {
+  PrismaBetterSqlite3 = require('@prisma/adapter-better-sqlite3').PrismaBetterSqlite3;
+}
 const { PrismaD1 } = require('@prisma/adapter-d1');
 const { D1HttpDatabase } = require('./d1Client');
 const AWS = require('aws-sdk');
@@ -1599,4 +1602,8 @@ app.get('/api/progress/weekly', auth, async (req, res) => {
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
 
-app.listen(process.env.PORT || 4000, () => console.log(`Server listening on ${process.env.PORT || 4000}`));
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  app.listen(process.env.PORT || 4000, () => console.log(`Server listening on ${process.env.PORT || 4000}`));
+}

@@ -43,7 +43,7 @@ app.use(cors({
   credentials: true,
 }));
 // Explicit OPTIONS handler for preflight
-app.options('*', cors());
+app.options('{*path}', cors());
 app.use(express.json({ limit: '1mb' }));
 
 // Rate limiting

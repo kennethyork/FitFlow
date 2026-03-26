@@ -1,12 +1,8 @@
-let app;
-try {
-  const path = require('path');
-  process.env.VERCEL = '1';
-  app = require('../server/index.js');
-} catch (err) {
-  const express = require('express');
-  app = express();
-  const msg = { error: 'Server failed to load', message: err.message, stack: err.stack?.split('\n').slice(0, 5) };
-  app.all('*', (req, res) => res.status(500).json(msg));
-}
-module.exports = app;
+module.exports = (req, res) => {
+  const fs = require('fs');
+  const serverModules = fs.existsSync('/var/task/server/node_modules');
+  const rootModules = fs.existsSync('/var/task/node_modules');
+  const files = fs.readdirSync('/var/task/api');
+  const serverFiles = fs.existsSync('/var/task/server') ? fs.readdirSync('/var/task/server').slice(0, 20) : [];
+  res.json({ serverModules, rootModules, apiFiles: files, serverFiles });
+};

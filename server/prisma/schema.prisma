@@ -22,6 +22,7 @@ model User {
   waterLogs     WaterLog[]
   progressPhotos ProgressPhoto[]
   stepLogs      StepLog[]
+  chatMessages  ChatMessage[]
 }
 
 model FoodLog {
@@ -69,4 +70,13 @@ model StepLog {
   userId    Int
   steps     Int
   loggedAt  DateTime @default(now())
+}
+
+model ChatMessage {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  role      String   // 'user' | 'coach'
+  text      String
+  createdAt DateTime @default(now())
 }

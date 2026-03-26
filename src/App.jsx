@@ -240,16 +240,18 @@ function App() {
         }
 
         // Load weight, water, photos, steps
-        const [weightRes, waterRes, photosRes, stepsRes] = await Promise.all([
+        const [weightRes, waterRes, photosRes, stepsRes, chatRes] = await Promise.all([
           fetch('/api/weight', { headers: hdrs }),
           fetch('/api/water/today', { headers: hdrs }),
           fetch('/api/progress-photos', { headers: hdrs }),
           fetch('/api/steps/today', { headers: hdrs }),
+          fetch('/api/chat', { headers: hdrs }),
         ]);
         if (weightRes.ok) setWeightLogs(await weightRes.json());
         if (waterRes.ok) { const w = await waterRes.json(); setWaterGlasses(w.glasses || 0); }
         if (photosRes.ok) setProgressPhotos(await photosRes.json());
         if (stepsRes.ok) { const s = await stepsRes.json(); setStepsToday(s.steps || 0); }
+        if (chatRes.ok) { const msgs = await chatRes.json(); setChatHistory(Array.isArray(msgs) ? msgs : []); }
       } catch (err) {
         console.error(err);
         setLoadError('Unable to connect to server.');
@@ -584,6 +586,8 @@ function App() {
       const history = [...chatHistory, { role: 'user', text: q }];
       const answer = await aiChat(history);
       setChatHistory((prev) => [...prev, { role: 'coach', text: answer }]);
+      // Persist both messages to DB
+      fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: answer }] }) }).catch(() => {});
 
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
@@ -603,12 +607,16 @@ function App() {
           if (res.ok) {
             const newTask = await res.json();
             setHabits((prev) => [...prev, newTask]);
-            setChatHistory((prev) => [...prev, { role: 'coach', text: `✅ I've added "${taskTitle}" to your daily tasks!` }]);
+            const taskMsg = `✅ I've added "${taskTitle}" to your daily tasks!`;
+            setChatHistory((prev) => [...prev, { role: 'coach', text: taskMsg }]);
+            fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'coach', text: taskMsg }] }) }).catch(() => {});
           }
         } catch { /* ignore assign error */ }
       }
     } catch {
-      setChatHistory((prev) => [...prev, { role: 'coach', text: "Sorry, I couldn't process that. Try again!" }]);
+      const errMsg = "Sorry, I couldn't process that. Try again!";
+      setChatHistory((prev) => [...prev, { role: 'coach', text: errMsg }]);
+      fetch('/api/chat', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: errMsg }] }) }).catch(() => {});
     } finally {
       setCoachTyping(false);
     }
@@ -1176,12 +1184,16 @@ function App() {
                     <input type="number" className="input" value={mealFat} onChange={(e) => setMealFat(e.target.value)} placeholder="g" />
                   </div>
                 </div>
-                <div className="input-row">
-                  <input
-                    type="file"
-                    onChange={(e) => setFile(e.target.files[0])}
-                    style={{ fontSize: 13 }}
-                  />
+                <div className="file-upload-row">
+                  <label className="file-upload-label">
+                    <input
+                      type="file"
+                      className="file-upload-hidden"
+                      onChange={(e) => setFile(e.target.files[0])}
+                    />
+                    <span className="btn btn-secondary btn-sm">📎 Choose Photo</span>
+                    <span className="file-upload-name">{file ? file.name : 'No file selected'}</span>
+                  </label>
                   {isNative && (
                     <button type="button" className="btn btn-secondary btn-sm" onClick={async () => {
                       const result = await takePhoto();

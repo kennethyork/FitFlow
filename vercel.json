@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": null,
-  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional && npx --yes prisma generate && rm -rf node_modules/@prisma/client/runtime/*sqlserver* node_modules/@prisma/client/runtime/*postgresql* node_modules/@prisma/client/runtime/*mysql* node_modules/@prisma/client/runtime/*cockroachdb* node_modules/@prisma/client/runtime/*.map node_modules/@cloudflare",
+  "installCommand": "bash vercel-install.sh",
   "buildCommand": "echo done",
   "outputDirectory": ".",
   "functions": {
@@ -11,6 +11,11 @@
   },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" }
+  ],
+  "routes": [
+    { "handle": "filesystem" },
+    { "src": "/api/(.*)", "dest": "/api/index.js" },
+    { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }
   ],
   "headers": [
     {

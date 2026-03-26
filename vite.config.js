@@ -4,7 +4,7 @@ import { VitePWA } from 'vite-plugin-pwa'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: process.env.VITE_BASE_URL || '/',
+  base: process.env.VITE_BASE_URL || '/FitFlow/',
   plugins: [
     react(),
     VitePWA({
@@ -18,8 +18,8 @@ export default defineConfig({
         background_color: '#0f1117',
         display: 'standalone',
         orientation: 'portrait',
-        scope: '/',
-        start_url: '/',
+        scope: '/FitFlow/',
+        start_url: '/FitFlow/',
         icons: [
           {
             src: '/icon-192.png',

@@ -12,11 +12,6 @@
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index.js" }
   ],
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/api/(.*)", "dest": "/api/index.js" },
-    { "src": "/(.*)", "status": 404, "dest": "/api/index.js" }
-  ],
   "headers": [
     {
       "source": "/api/(.*)",

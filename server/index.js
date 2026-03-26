@@ -25,16 +25,23 @@ const app = express();
 
 // ── Security middleware ──
 app.use(helmet({ contentSecurityPolicy: false }));
-const corsOrigin = process.env.CORS_ORIGIN
+const allowedOrigins = process.env.CORS_ORIGIN
   ? process.env.CORS_ORIGIN.split(',').map(s => s.trim())
   : ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'];
 if (process.env.VERCEL) {
-  corsOrigin.push('https://kennethyork.github.io');
+  allowedOrigins.push('https://kennethyork.github.io');
 }
 app.use(cors({
-  origin: corsOrigin,
+  origin(origin, cb) {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.some(o => origin === o || origin.startsWith(o))) return cb(null, true);
+    cb(null, false);
+  },
   credentials: true,
 }));
+// Explicit OPTIONS handler for preflight
+app.options('*', cors());
 app.use(express.json({ limit: '1mb' }));
 
 // Rate limiting

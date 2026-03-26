@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "FitFlow",
+    "slug": "fitflow",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0f1117",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f1117"
+    },
+    "android": {
+      "package": "com.fitflow.app",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "backgroundColor": "#0f1117",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "permissions": [
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "ACTIVITY_RECOGNITION",
+        "VIBRATE"
+      ]
+    },
+    "plugins": [
+      "expo-sensors",
+      "expo-image-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow FitFlow to access your camera for progress photos."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#6c5ce7"
+        }
+      ]
+    ]
+  }
+}

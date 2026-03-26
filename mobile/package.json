@@ -1,0 +1,24 @@
+{
+  "name": "mobile",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "start": "NODE_OPTIONS=--no-experimental-strip-types expo start",
+    "android": "NODE_OPTIONS=--no-experimental-strip-types expo start --android",
+    "ios": "NODE_OPTIONS=--no-experimental-strip-types expo start --ios",
+    "web": "NODE_OPTIONS=--no-experimental-strip-types expo start --web"
+  },
+  "dependencies": {
+    "expo": "~55.0.8",
+    "expo-camera": "~55.0.11",
+    "expo-haptics": "~55.0.9",
+    "expo-image-picker": "~55.0.13",
+    "expo-notifications": "~55.0.13",
+    "expo-sensors": "~55.0.9",
+    "expo-status-bar": "~55.0.4",
+    "react": "19.2.0",
+    "react-native": "0.83.2",
+    "react-native-webview": "13.16.0"
+  },
+  "private": true
+}

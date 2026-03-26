@@ -33,7 +33,7 @@ export default function AuthScreen({ onAuth }) {
         setError(data.error || 'Something went wrong');
         return;
       }
-      onAuth(data.token, data.user);
+      onAuth(data.token, data.user, mode === 'signup');
     } catch {
       setError('Unable to connect to server');
     } finally {

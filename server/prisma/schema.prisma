@@ -7,13 +7,21 @@ datasource db {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
-  email     String   @unique
-  name      String?
-  password  String
-  tier      String   @default("free")   // free | pro | premium
-  createdAt DateTime @default(now())
-  logs      FoodLog[]
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  name          String?
+  password      String
+  tier          String   @default("free")   // free | pro | premium
+  onboarded     Boolean  @default(false)
+  goalType      String?  // lose | maintain | gain
+  activityLevel String?  // sedentary | light | moderate | active
+  calorieGoal   Int      @default(1800)
+  createdAt     DateTime @default(now())
+  logs          FoodLog[]
+  weightLogs    WeightLog[]
+  waterLogs     WaterLog[]
+  progressPhotos ProgressPhoto[]
+  stepLogs      StepLog[]
 }
 
 model FoodLog {
@@ -27,4 +35,38 @@ model FoodLog {
   fat         Int
   loggedAt    DateTime @default(now())
   imageUrl    String?
+}
+
+model WeightLog {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  weight    Float
+  unit      String   @default("lbs")
+  loggedAt  DateTime @default(now())
+}
+
+model WaterLog {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  glasses   Int
+  loggedAt  DateTime @default(now())
+}
+
+model ProgressPhoto {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  imageUrl  String
+  note      String?
+  loggedAt  DateTime @default(now())
+}
+
+model StepLog {
+  id        Int      @id @default(autoincrement())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  steps     Int
+  loggedAt  DateTime @default(now())
 }

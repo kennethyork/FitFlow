@@ -2,7 +2,8 @@
   "version": 2,
   "framework": null,
   "installCommand": "bash vercel-install.sh",
-  "buildCommand": "echo done",
+  "buildCommand": "",
+  "outputDirectory": "public",
   "functions": {
     "api/index.js": {
       "maxDuration": 30

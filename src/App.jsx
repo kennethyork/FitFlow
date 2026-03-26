@@ -797,9 +797,38 @@ function App() {
 
   if (loading) {
     return (
-      <div className="loading-screen">
-        <div className="spinner" />
-        <p style={{ color: 'var(--text-muted)' }}>Loading FitFlow...</p>
+      <div className="app-shell">
+        <div className="main-area">
+          <div className="app-header">
+            <h1>FitFlow</h1>
+            <div className="header-right">
+              <div className="skeleton skeleton-badge" />
+              <div className="skeleton skeleton-btn" />
+            </div>
+          </div>
+          <div className="tab-content">
+            <div className="skeleton skeleton-title" />
+            <div className="card">
+              <div className="skeleton skeleton-ring" />
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 12 }}>
+                <div className="skeleton skeleton-macro" />
+                <div className="skeleton skeleton-macro" />
+                <div className="skeleton skeleton-macro" />
+              </div>
+            </div>
+            <div className="skeleton skeleton-title" style={{ marginTop: 16 }} />
+            <div className="card">
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line short" />
+              <div className="skeleton skeleton-line" />
+            </div>
+            <div className="skeleton skeleton-title" style={{ marginTop: 16 }} />
+            <div className="card">
+              <div className="skeleton skeleton-line" />
+              <div className="skeleton skeleton-line short" />
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1598,6 +1627,14 @@ function App() {
               </div>
             </div>
 
+            {habits.length === 0 && (
+              <div className="card empty-state">
+                <div className="empty-state-icon">✅</div>
+                <div className="empty-state-title">No habits yet</div>
+                <div className="empty-state-text">Add your first habit below to start building healthy routines!</div>
+              </div>
+            )}
+
             {/* Daily Tasks */}
             {habits.filter(h => h.source === 'daily').length > 0 && (
               <div className="card" style={{ marginBottom: 16 }}>
@@ -1700,6 +1737,13 @@ function App() {
         {tab === 'learn' && (
           <>
             <div className="section-title">Your Lessons</div>
+            {lessons.length === 0 && (
+              <div className="card empty-state">
+                <div className="empty-state-icon">📖</div>
+                <div className="empty-state-title">Lessons loading...</div>
+                <div className="empty-state-text">Educational content about nutrition, fitness, and healthy habits will appear here.</div>
+              </div>
+            )}
             <div className="lesson-grid">
             {lessons.map((lesson) => (
               <div className="lesson-card" key={lesson.id}>

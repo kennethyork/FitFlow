@@ -18,7 +18,11 @@ export default function PricingScreen({ currentTier, token, onUpgrade, onClose }
         body: JSON.stringify({ tier }),
       });
       const data = await res.json();
-      if (res.ok) onUpgrade(data.token, data.user);
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl;
+        return;
+      }
+      if (res.ok && data.token) onUpgrade(data.token, data.user);
     } catch {
       // ignore
     } finally {

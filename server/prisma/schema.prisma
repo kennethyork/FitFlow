@@ -29,7 +29,7 @@ model User {
 
 model FoodLog {
   id          Int      @id @default(autoincrement())
-  user        User     @relation(fields: [userId], references: [id])
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId      Int
   meal        String
   calories    Int
@@ -38,54 +38,66 @@ model FoodLog {
   fat         Int
   loggedAt    DateTime @default(now())
   imageUrl    String?
+
+  @@index([userId, loggedAt])
 }
 
 model WeightLog {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   weight    Float
   unit      String   @default("lbs")
   loggedAt  DateTime @default(now())
+
+  @@index([userId, loggedAt])
 }
 
 model WaterLog {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   glasses   Int
   loggedAt  DateTime @default(now())
+
+  @@index([userId, loggedAt])
 }
 
 model ProgressPhoto {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   imageUrl  String
   note      String?
   loggedAt  DateTime @default(now())
+
+  @@index([userId, loggedAt])
 }
 
 model StepLog {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   steps     Int
   loggedAt  DateTime @default(now())
+
+  @@index([userId, loggedAt])
 }
 
 model ChatMessage {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   role      String   // 'user' | 'coach'
   text      String
   createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 model FavoriteMeal {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   meal      String
   calories  Int
@@ -93,15 +105,19 @@ model FavoriteMeal {
   carbs     Int
   fat       Int
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Habit {
   id        Int      @id @default(autoincrement())
-  user      User     @relation(fields: [userId], references: [id])
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    Int
   title     String
   source    String   // 'daily' | 'weekly' | 'monthly' | 'custom' | 'coach'
   completed Boolean  @default(false)
   period    String   @default("") // 'YYYY-MM-DD' | 'YYYY-WXX' | 'YYYY-MM' | ''
   createdAt DateTime @default(now())
+
+  @@index([userId, period])
 }

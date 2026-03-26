@@ -1,5 +1,7 @@
 const express = require('express');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const multer = require('multer');
 const { PrismaClient } = require('@prisma/client');
 const { PrismaBetterSqlite3 } = require('@prisma/adapter-better-sqlite3');
@@ -14,14 +16,27 @@ const { searchUSDA, searchOpenFoodFacts } = require('./foodApis');
 const { XMLParser } = require('fast-xml-parser');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
+
+// ── Security middleware ──
+app.use(helmet({ contentSecurityPolicy: false }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:5175', 'http://localhost:5176'],
+  credentials: true,
+}));
+app.use(express.json({ limit: '1mb' }));
+
+// Rate limiting
+const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 20, message: { error: 'Too many attempts, try again in 15 minutes' } });
+const apiLimiter = rateLimit({ windowMs: 60 * 1000, max: 100, message: { error: 'Too many requests, slow down' } });
+app.use('/api/auth/login', authLimiter);
+app.use('/api/auth/signup', authLimiter);
+app.use('/api/', apiLimiter);
 
 const adapter = new PrismaBetterSqlite3({
   url: process.env.DATABASE_URL,
 });
 const prisma = new PrismaClient({ adapter });
-const upload = multer({ dest: 'uploads/' });
+const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
 const s3Config = { region: process.env.AWS_REGION };
 if (process.env.S3_ENDPOINT) {
@@ -46,6 +61,14 @@ async function uploadToS3(filePath, fileName, mimetype) {
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';
+
+// ── Stripe setup ──
+const stripe = process.env.STRIPE_SECRET_KEY ? require('stripe')(process.env.STRIPE_SECRET_KEY) : null;
+const STRIPE_PRICES = {
+  pro: process.env.STRIPE_PRICE_PRO || null,
+  premium: process.env.STRIPE_PRICE_PREMIUM || null,
+  unlimited: process.env.STRIPE_PRICE_UNLIMITED || null,
+};
 
 // ── Auth helpers ──
 function signToken(user) {
@@ -148,7 +171,29 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
   try {
     const { tier } = req.body;
     if (!['free', 'pro', 'premium', 'unlimited'].includes(tier)) return res.status(400).json({ error: 'Invalid tier' });
-    // TODO: integrate Stripe payment verification here before upgrading
+
+    // Downgrade to free — no payment needed
+    if (tier === 'free') {
+      const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
+      const token = signToken(user);
+      return res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
+    }
+
+    // If Stripe is configured, create checkout session
+    if (stripe && STRIPE_PRICES[tier]) {
+      const session = await stripe.checkout.sessions.create({
+        mode: 'subscription',
+        payment_method_types: ['card'],
+        line_items: [{ price: STRIPE_PRICES[tier], quantity: 1 }],
+        success_url: `${process.env.APP_URL || 'http://localhost:5173'}/?upgraded=${tier}`,
+        cancel_url: `${process.env.APP_URL || 'http://localhost:5173'}/?cancelled=true`,
+        client_reference_id: String(req.user.id),
+        metadata: { tier, userId: String(req.user.id) },
+      });
+      return res.json({ checkoutUrl: session.url });
+    }
+
+    // Dev fallback: no Stripe configured, upgrade directly
     const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
@@ -156,6 +201,37 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
     console.error(error);
     res.status(500).json({ error: 'Upgrade failed' });
   }
+});
+
+// Stripe webhook — confirm payment and upgrade tier
+app.post('/api/stripe/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
+  if (!stripe) return res.status(400).json({ error: 'Stripe not configured' });
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    console.error('Webhook signature verification failed:', err.message);
+    return res.status(400).json({ error: 'Webhook signature failed' });
+  }
+  if (event.type === 'checkout.session.completed') {
+    const session = event.data.object;
+    const userId = parseInt(session.client_reference_id || session.metadata?.userId);
+    const tier = session.metadata?.tier;
+    if (userId && tier) {
+      await prisma.user.update({ where: { id: userId }, data: { tier } });
+      console.log(`Stripe: upgraded user ${userId} to ${tier}`);
+    }
+  }
+  if (event.type === 'customer.subscription.deleted') {
+    const sub = event.data.object;
+    const userId = parseInt(sub.metadata?.userId);
+    if (userId) {
+      await prisma.user.update({ where: { id: userId }, data: { tier: 'free' } });
+      console.log(`Stripe: downgraded user ${userId} to free (subscription canceled)`);
+    }
+  }
+  res.json({ received: true });
 });
 
 app.post('/api/auth/onboard', auth, async (req, res) => {

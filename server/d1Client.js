@@ -63,10 +63,11 @@ class D1HttpPreparedStatement {
   async raw(options) {
     const result = await this._execute();
     const rows = result.results || [];
-    if (!rows.length) return options?.columnNames ? { columns: [], results: [] } : [];
+    if (!rows.length) return options?.columnNames ? [[]] : [];
     const columns = Object.keys(rows[0]);
     const rawRows = rows.map(r => columns.map(c => r[c]));
-    if (options?.columnNames) return { columns, results: rawRows };
+    // D1 binding: raw({ columnNames: true }) returns [columnNames, ...rows]
+    if (options?.columnNames) return [columns, ...rawRows];
     return rawRows;
   }
 }

@@ -99,7 +99,7 @@ function App() {
   const [workoutResults, setWorkoutResults] = useState([]);
 
   const [videoTabs, setVideoTabs] = useState([]);
-  const [activeVideoTab, setActiveVideoTab] = useState('easy');
+  const [activeVideoTab, setActiveVideoTab] = useState('chair');
   const [browseVideos, setBrowseVideos] = useState([]);
   const [browseLoading, setBrowseLoading] = useState(false);
   const [videoSearchTerm, setVideoSearchTerm] = useState('');

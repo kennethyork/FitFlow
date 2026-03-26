@@ -742,17 +742,30 @@ const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: 
 
 // Curated fitness YouTube channels per category (8 per tab ≈ 120 videos each)
 const VIDEO_TABS = {
-  easy: {
-    label: '🪑 Easy / Chair',
+  chair: {
+    label: '🪑 Chair',
     channels: [
+      { id: 'UCIJwWYOfsCfz6PjxbONYXSg', name: 'Sit and Be Fit' },
       { id: 'UCOSeFk4ires3UVG2GHEbHHQ', name: 'SilverSneakers' },
       { id: 'UCCgLoMYIyP0U56dEhEL1wXQ', name: 'Grow Young Fitness' },
-      { id: 'UC-1-zPmGtrOBbchBQ0fSu0g', name: 'HASfit' },
-      { id: 'UCIJwWYOfsCfz6PjxbONYXSg', name: 'Sit and Be Fit' },
+      { id: 'UC4ZhhJfMODBNMruFKGHPBmQ', name: 'Senior Fitness with Meredith' },
       { id: 'UCOLtE_SBYO3aGH2JiNzAEjg', name: 'Improved Health' },
       { id: 'UCK9RGzCfXGEIA6W2GQIK4Mg', name: 'More Life Health' },
-      { id: 'UC4ZhhJfMODBNMruFKGHPBmQ', name: 'Senior Fitness with Meredith' },
       { id: 'UCR7FqmP3piPYSJNxo8ynE-g', name: 'Fitness With Cindy' },
+      { id: 'UCBcRGuvGR2qXiALYBE-UERg', name: 'Pahla B Fitness' },
+    ],
+  },
+  easy: {
+    label: '🟢 Easy',
+    channels: [
+      { id: 'UC-1-zPmGtrOBbchBQ0fSu0g', name: 'HASfit' },
+      { id: 'UCBINFWq52ShSgUFEoynfSwg', name: 'WALK at Home' },
+      { id: 'UCIuvJhfsp-SO72xJGCdY3SA', name: 'growwithjo' },
+      { id: 'UCpis3RcTw6t47XO0R_KY4lg', name: 'POPSUGAR Fitness' },
+      { id: 'UCvGEK5_U-kLgO6-AMDPeTUQ', name: 'Penny Barnshaw' },
+      { id: 'UCOiGERTfI4LhzqYP_oECHOQ', name: 'Juice & Toya' },
+      { id: 'UCM1Nde-9eorUhq-teKPUqOA', name: 'Team Body Project' },
+      { id: 'UCaBqRxHEMomgFU-AkSENMnw', name: 'Chloe Ting' },
     ],
   },
   moderate: {
@@ -887,7 +900,7 @@ async function fetchChannelFeed(channelId, channelName) {
 }
 
 async function getTabVideos(tabId, userId) {
-  const tabDef = VIDEO_TABS[tabId] || VIDEO_TABS.easy;
+  const tabDef = VIDEO_TABS[tabId] || VIDEO_TABS.chair;
   const allVideos = [];
 
   const feeds = await Promise.all(
@@ -955,7 +968,7 @@ app.get('/api/videos/browse', auth, async (req, res) => {
       }).slice(0, 12);
       return res.json({ videos: matches });
     }
-    const videos = await getTabVideos(tab || 'easy', req.user.id);
+    const videos = await getTabVideos(tab || 'chair', req.user.id);
     res.json({ videos });
   } catch (error) {
     console.error('Video browse error:', error);

@@ -9,7 +9,8 @@ if (!process.env.VERCEL) {
   // Dynamic string prevents Vercel NFT from tracing these dev-only native modules
   PrismaBetterSqlite3 = require('@prisma/adapter-' + 'better-sqlite3').PrismaBetterSqlite3;
 }
-const { PrismaD1 } = require('@prisma/adapter-d1');
+// @prisma/adapter-d1 depends on ESM-only 'ky', so we lazy-load it
+let PrismaD1;
 const { D1HttpDatabase } = require('./d1Client');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
@@ -53,9 +54,14 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
 app.use('/api/', apiLimiter);
 
+// Ensure DB is initialized before handling requests
+app.use('/api', async (req, res, next) => { await dbReady; next(); });
+
 // ── Database adapter ──
 let prisma;
+const initDb = async () => {
 if (process.env.D1_DATABASE_ID) {
+  ({ PrismaD1 } = await import('@prisma/adapter-d1'));
   const d1 = new D1HttpDatabase({
     accountId: process.env.D1_ACCOUNT_ID,
     databaseId: process.env.D1_DATABASE_ID,
@@ -75,6 +81,8 @@ if (process.env.D1_DATABASE_ID) {
   prisma = new PrismaClient({ adapter });
   console.log('Using local SQLite database');
 }
+};
+const dbReady = initDb();
 const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
 const s3Config = { region: process.env.AWS_REGION || 'us-east-1' };

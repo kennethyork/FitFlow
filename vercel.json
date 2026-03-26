@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "installCommand": "npm install --legacy-peer-deps && cd server && npm install",
-  "buildCommand": "echo 'API only - no build needed'",
+  "installCommand": "cd server && npm install",
+  "buildCommand": "cd server && npx prisma generate",
   "outputDirectory": ".",
   "functions": {
     "api/index.js": {
-      "includeFiles": "server/**"
+      "maxDuration": 30,
+      "excludeFiles": "{server/node_modules/prisma/**,server/node_modules/@prisma/engines/**,server/node_modules/@prisma/studio-core/**,server/node_modules/better-sqlite3/**,server/node_modules/@prisma/adapter-better-sqlite3/**}"
     }
   },
   "rewrites": [

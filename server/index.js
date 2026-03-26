@@ -10,7 +10,7 @@ if (!process.env.VERCEL) {
 }
 const { PrismaD1 } = require('@prisma/adapter-d1');
 const { D1HttpDatabase } = require('./d1Client');
-const AWS = require('aws-sdk');
+const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -64,26 +64,26 @@ if (process.env.D1_DATABASE_ID) {
 }
 const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
 
-const s3Config = { region: process.env.AWS_REGION };
+const s3Config = { region: process.env.AWS_REGION || 'us-east-1' };
 if (process.env.S3_ENDPOINT) {
   s3Config.endpoint = process.env.S3_ENDPOINT;
-  s3Config.s3ForcePathStyle = true;
+  s3Config.forcePathStyle = true;
 }
-const s3 = new AWS.S3(s3Config);
+const s3 = new S3Client(s3Config);
 
 async function uploadToS3(filePath, fileName, mimetype) {
   if (!process.env.S3_BUCKET) throw new Error('S3_BUCKET not configured');
   const body = fs.createReadStream(filePath);
   const key = `uploads/${Date.now()}_${fileName}`;
-  const params = {
-    Bucket: process.env.S3_BUCKET,
+  const bucket = process.env.S3_BUCKET;
+  await s3.send(new PutObjectCommand({
+    Bucket: bucket,
     Key: key,
     Body: body,
     ContentType: mimetype,
     ACL: 'public-read',
-  };
-  const { Location } = await s3.upload(params).promise();
-  return Location;
+  }));
+  return `https://${bucket}.s3.amazonaws.com/${key}`;
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';

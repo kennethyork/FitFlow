@@ -318,6 +318,7 @@ input[type="number"] { -moz-appearance: textfield; }
   -webkit-overflow-scrolling: touch; scrollbar-width: none;
   background: var(--bg-card); border-radius: var(--radius-md);
   border: 1px solid var(--border-light); margin-bottom: 4px;
+  flex-wrap: wrap;
 }
 .video-tab-bar::-webkit-scrollbar { display: none; }
 .video-tab-pill {
@@ -885,6 +886,19 @@ input[type="number"] { -moz-appearance: textfield; }
   border-color: var(--noom-green);
   background: var(--noom-green-light, rgba(44,134,103,0.08));
 }
+.pricing-card.current .plan-name,
+.pricing-card.current .plan-price {
+  color: #1a1a2e;
+}
+.pricing-card.current .plan-price .period {
+  color: #6b7280;
+}
+.pricing-card.current .plan-features {
+  color: #4b5563;
+}
+.pricing-card.current .plan-features li {
+  border-bottom-color: rgba(0,0,0,0.1);
+}
 .popular-badge {
   position: absolute;
   top: -12px;
@@ -910,7 +924,7 @@ input[type="number"] { -moz-appearance: textfield; }
   color: var(--noom-green);
   margin-bottom: 12px;
 }
-.plan-price span { font-size: 14px; font-weight: 500; color: var(--text-muted); }
+.plan-price .period { font-size: 14px; font-weight: 500; color: var(--text-muted); }
 .plan-features {
   list-style: none;
   padding: 0;
@@ -945,6 +959,124 @@ input[type="number"] { -moz-appearance: textfield; }
   .pricing-card {
     flex: 1;
   }
+}
+
+/* ── Account Screen ── */
+.account-screen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.account-field {
+  margin-bottom: 14px;
+}
+.account-field label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+.account-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.pill {
+  padding: 8px 14px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.pill:hover {
+  border-color: var(--noom-green);
+  color: var(--text-primary);
+}
+.pill.active {
+  background: var(--noom-green);
+  color: white;
+  border-color: var(--noom-green);
+}
+.account-plan-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.account-plan-name {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.account-plan-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.account-info-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-light, var(--border));
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.account-info-label {
+  color: var(--text-secondary);
+}
+.account-danger {
+  border-color: var(--noom-red, #e74c3c);
+}
+.account-danger .card-title {
+  color: var(--noom-red, #e74c3c);
+}
+.account-danger-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+.account-delete-btn {
+  background: var(--noom-red, #e74c3c) !important;
+  color: white !important;
+  border: none;
+}
+.account-delete-btn:hover {
+  opacity: 0.9;
+}
+.account-delete-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.account-delete-actions {
+  display: flex;
+  gap: 8px;
+}
+.account-delete-actions .btn {
+  flex: 1;
+}
+.account-toast {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 24px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  font-weight: 600;
+  z-index: 1000;
+  animation: fadeIn 0.2s;
+}
+.account-toast.success {
+  background: var(--noom-green);
+  color: white;
+}
+.account-toast.error {
+  background: var(--noom-red, #e74c3c);
+  color: white;
 }
 
 /* ── Onboarding ── */

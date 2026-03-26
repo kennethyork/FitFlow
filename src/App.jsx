@@ -5,6 +5,7 @@ import useCoachAI from './useCoachAI';
 import AuthScreen from './AuthScreen';
 import OnboardingScreen from './OnboardingScreen';
 import PricingScreen from './PricingScreen';
+import AccountScreen from './AccountScreen';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 
@@ -14,6 +15,7 @@ const TABS = [
   { id: 'habits', icon: '✅', label: 'Habits' },
   { id: 'learn', icon: '📖', label: 'Learn' },
   { id: 'coach', icon: '💬', label: 'Coach' },
+  { id: 'account', icon: '⚙️', label: 'Account' },
 ];
 
 function colorTag(calories) {
@@ -819,7 +821,7 @@ function App() {
           <span className="sidebar-logo">🌿</span>
           <span>FitFlow</span>
         </div>
-        {TABS.map((t) => (
+        {TABS.filter((t) => t.id !== 'account').map((t) => (
           <button
             key={t.id}
             className={`sidebar-item ${tab === t.id ? 'active' : ''}`}
@@ -833,6 +835,10 @@ function App() {
         <button className="sidebar-item" onClick={() => setShowPricing(true)}>
           <span className="sidebar-icon">⭐</span>
           {user?.tier === 'free' ? 'Upgrade' : 'Plan'}
+        </button>
+        <button className={`sidebar-item ${tab === 'account' ? 'active' : ''}`} onClick={() => setTab('account')}>
+          <span className="sidebar-icon">⚙️</span>
+          Account
         </button>
         <button className="sidebar-item" onClick={handleLogout}>
           <span className="sidebar-icon">🚪</span>
@@ -849,7 +855,7 @@ function App() {
             <button className="btn btn-secondary btn-sm" onClick={() => setShowPricing(true)}>
               {user?.tier === 'free' ? '⭐ Upgrade' : '⭐ Plan'}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={handleLogout}>Logout</button>
+            <button className="btn btn-secondary btn-sm" onClick={() => setTab('account')}>⚙️</button>
           </div>
         </div>
 
@@ -1857,6 +1863,17 @@ function App() {
               </button>
             </div>
           </>
+        )}
+
+        {/* ═══════ ACCOUNT TAB ═══════ */}
+        {tab === 'account' && (
+          <AccountScreen
+            user={user}
+            token={token}
+            onUpdate={handleUpgrade}
+            onLogout={handleLogout}
+            onShowPricing={() => setShowPricing(true)}
+          />
         )}
       </div>
 

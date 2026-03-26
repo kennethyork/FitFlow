@@ -147,7 +147,7 @@ app.get('/api/auth/me', auth, async (req, res) => {
 app.put('/api/auth/upgrade', auth, async (req, res) => {
   try {
     const { tier } = req.body;
-    if (!['free', 'pro', 'premium'].includes(tier)) return res.status(400).json({ error: 'Invalid tier' });
+    if (!['free', 'pro', 'premium', 'unlimited'].includes(tier)) return res.status(400).json({ error: 'Invalid tier' });
     // TODO: integrate Stripe payment verification here before upgrading
     const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
     const token = signToken(user);
@@ -172,6 +172,64 @@ app.post('/api/auth/onboard', auth, async (req, res) => {
   } catch (error) {
     console.error(error);
     res.status(500).json({ error: 'Onboarding failed' });
+  }
+});
+
+// ── Account management routes ──
+app.put('/api/auth/profile', auth, async (req, res) => {
+  try {
+    const { name, email, goalType, activityLevel, calorieGoal } = req.body;
+    const data = {};
+    if (name !== undefined) data.name = String(name).trim().slice(0, 100);
+    if (email !== undefined) {
+      const clean = String(email).trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) return res.status(400).json({ error: 'Invalid email' });
+      const existing = await prisma.user.findUnique({ where: { email: clean } });
+      if (existing && existing.id !== req.user.id) return res.status(409).json({ error: 'Email already in use' });
+      data.email = clean;
+    }
+    if (['lose', 'maintain', 'gain'].includes(goalType)) data.goalType = goalType;
+    if (['sedentary', 'light', 'moderate', 'active'].includes(activityLevel)) data.activityLevel = activityLevel;
+    if (calorieGoal && Number(calorieGoal) > 0) data.calorieGoal = Number(calorieGoal);
+    if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No fields to update' });
+    const user = await prisma.user.update({ where: { id: req.user.id }, data });
+    const token = signToken(user);
+    res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, goalType: user.goalType, activityLevel: user.activityLevel, createdAt: user.createdAt } });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Profile update failed' });
+  }
+});
+
+app.put('/api/auth/password', auth, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
+    if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const valid = await bcrypt.compare(currentPassword, user.password);
+    if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+    const hash = await bcrypt.hash(newPassword, 10);
+    await prisma.user.update({ where: { id: req.user.id }, data: { password: hash } });
+    res.json({ message: 'Password updated' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Password change failed' });
+  }
+});
+
+app.delete('/api/auth/account', auth, async (req, res) => {
+  try {
+    const { password } = req.body;
+    if (!password) return res.status(400).json({ error: 'Password required to delete account' });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const valid = await bcrypt.compare(password, user.password);
+    if (!valid) return res.status(401).json({ error: 'Incorrect password' });
+    await prisma.user.delete({ where: { id: req.user.id } });
+    res.json({ message: 'Account deleted' });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Account deletion failed' });
   }
 });
 

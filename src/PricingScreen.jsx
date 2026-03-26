@@ -31,7 +31,7 @@ export default function PricingScreen({ currentTier, token, onUpgrade, onClose }
       <div className="pricing-sheet">
         <div className="pricing-header">
           <h2>Choose Your Plan</h2>
-          <button className="pricing-close" onClick={onClose}>✕</button>
+          <button className="close-btn" onClick={onClose}>✕</button>
         </div>
         <div className="pricing-grid">
           {plans.map((plan) => (
@@ -44,7 +44,7 @@ export default function PricingScreen({ currentTier, token, onUpgrade, onClose }
                 )}
               </div>
               <ul className="plan-features">
-                {plan.features.map((f, i) => <li key={i}>✓ {f}</li>)}
+                {plan.features.map((f, i) => <li key={i}>{f}</li>)}
               </ul>
               <button
                 className={`btn btn-full ${plan.id === currentTier ? 'btn-secondary' : 'btn-primary'}`}

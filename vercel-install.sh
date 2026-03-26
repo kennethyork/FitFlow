@@ -1,4 +1,5 @@
 #!/bin/sh
+npm ci --omit=dev 2>/dev/null || true
 cd server && npm ci --omit=dev --omit=peer --omit=optional
 npx --yes prisma generate
 rm -rf node_modules/@prisma/client/runtime/*sqlserver* \

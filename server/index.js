@@ -205,6 +205,17 @@ const TIER_LIMITS = {
   unlimited: { foodLogs: -1,  habits: -1  },
 };
 
+// Debug: test DB connection
+app.get('/api/debug/db', async (req, res) => {
+  try {
+    await dbReady;
+    const count = await prisma.user.count();
+    res.json({ ok: true, userCount: count, dbType: process.env.D1_DATABASE_ID ? 'd1' : 'sqlite' });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message, stack: err.stack?.split('\n').slice(0, 5) });
+  }
+});
+
 app.get('/api/tiers', (req, res) => {
   res.json({
     plans: [
@@ -240,8 +251,8 @@ app.post('/api/auth/signup', async (req, res) => {
     const token = signToken(user);
     res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: false }, needsVerification: true });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Signup failed' });
+    console.error('Signup error:', error);
+    res.status(500).json({ error: 'Signup failed', detail: error.message });
   }
 });
 
@@ -295,8 +306,8 @@ app.post('/api/auth/login', async (req, res) => {
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: user.emailVerified } });
   } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Login failed' });
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed', detail: error.message });
   }
 });
 

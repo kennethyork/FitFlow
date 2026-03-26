@@ -1,12 +1,11 @@
 {
   "version": 2,
-  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional && npx --yes prisma generate",
+  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional && npx --yes prisma generate && rm -rf node_modules/@prisma/client/runtime/*sqlserver* node_modules/@prisma/client/runtime/*postgresql* node_modules/@prisma/client/runtime/*mysql* node_modules/@prisma/client/runtime/*cockroachdb* node_modules/@prisma/client/runtime/*.map node_modules/@cloudflare/workerd-linux-64 node_modules/@cloudflare/workerd-linux-arm64 && du -sm node_modules/",
   "buildCommand": "echo done",
   "outputDirectory": ".",
   "functions": {
     "api/index.js": {
-      "maxDuration": 30,
-      "excludeFiles": "{server/node_modules/@prisma/client/runtime/*sqlserver*,server/node_modules/@prisma/client/runtime/*postgresql*,server/node_modules/@prisma/client/runtime/*mysql*,server/node_modules/@prisma/client/runtime/*cockroachdb*,server/node_modules/@prisma/client/runtime/*.map}"
+      "maxDuration": 30
     }
   },
   "rewrites": [

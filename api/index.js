@@ -1,4 +1,5 @@
-// Phase 1: minimal test — does the function even boot?
-module.exports = (req, res) => {
-  res.json({ ok: true, test: 'minimal function works' });
-};
+import { createRequire } from 'module';
+const require = createRequire(import.meta.url);
+process.env.VERCEL = '1';
+const app = require('../server/index.js');
+export default app;

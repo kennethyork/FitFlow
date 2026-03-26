@@ -83,7 +83,8 @@ if (process.env.D1_DATABASE_ID) {
 }
 };
 const dbReady = initDb();
-const upload = multer({ dest: 'uploads/', limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadDir = process.env.VERCEL ? '/tmp' : 'uploads/';
+const upload = multer({ dest: uploadDir, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const s3Config = { region: process.env.AWS_REGION || 'us-east-1' };
 if (process.env.S3_ENDPOINT) {

@@ -1552,13 +1552,13 @@ function App() {
               ))}
             </div>
 
-            {/* Video search */}
+            {/* Video filter */}
             <div className="input-row">
               <input
                 className="input"
                 value={videoSearchTerm}
                 onChange={(e) => setVideoSearchTerm(e.target.value)}
-                placeholder="Search videos..."
+                placeholder="Filter videos..."
                 onKeyDown={(e) => { if (e.key === 'Enter' && videoSearchTerm.trim()) loadBrowseVideos(null, videoSearchTerm); }}
               />
               <button className="btn btn-primary" onClick={() => videoSearchTerm.trim() && loadBrowseVideos(null, videoSearchTerm)}>

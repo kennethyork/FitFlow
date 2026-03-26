@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { FOOD_DB, FOOD_CATEGORIES } = require('./foodDatabase');
 const { searchUSDA, searchOpenFoodFacts } = require('./foodApis');
+const { XMLParser } = require('fast-xml-parser');
 
 const app = express();
 app.use(cors());
@@ -736,103 +737,179 @@ app.put('/api/habits/:id/toggle', auth, async (req, res) => {
 const lessons = [];
 app.get('/api/lessons', auth, (req, res) => res.json(lessons));
 
-// ── Workout video API (Invidious — no API key needed) ──
-const WORKOUT_CATEGORIES = [
-  'HIIT workout',
-  'yoga for beginners',
-  'full body strength training',
-  'pilates workout',
-  'cardio dance workout',
-  'stretching routine',
-  'core abs workout',
-  'kettlebell workout',
-  'bodyweight workout no equipment',
-  'morning workout routine',
-  'low impact workout',
-  'tabata workout',
-  'resistance band workout',
-  'boxing fitness workout',
-];
+// ── Video API (YouTube RSS channel feeds — legal, no API key needed) ──
+const xmlParser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
 
+// Curated fitness YouTube channels per category (8 per tab ≈ 120 videos each)
 const VIDEO_TABS = {
-  easy: { label: '🪑 Easy / Chair', queries: ['seated chair exercises for beginners', 'gentle chair workout seniors', 'low impact chair exercises', 'chair yoga stretch routine'] },
-  moderate: { label: '🚶 Moderate', queries: ['low impact workout for beginners', 'walking workout at home 20 min', 'beginner full body workout no equipment', 'easy standing workout no jumping'] },
-  intermediate: { label: '🏃 Intermediate', queries: ['full body workout follow along 30 min', 'intermediate HIIT no equipment', 'cardio strength workout at home', 'bodyweight circuit training'] },
-  advanced: { label: '🔥 Advanced', queries: ['intense HIIT workout 30 min', 'advanced full body strength training', 'extreme cardio workout challenge', 'plyometric workout advanced'] },
-  yoga: { label: '🧘 Yoga', queries: ['yoga for beginners 20 min', 'morning yoga stretch routine', 'yoga for weight loss', 'bedtime yoga relaxation'] },
-  foodtips: { label: '🥗 Food Tips', queries: ['healthy meal prep for weight loss', 'nutrition tips for beginners', 'healthy eating habits', 'calorie deficit diet tips'] },
-  cooking: { label: '👨‍🍳 Cooking', queries: ['healthy recipe easy', 'high protein meal prep', 'low calorie dinner recipes', 'healthy breakfast ideas quick'] },
-  mindset: { label: '🧠 Mindset', queries: ['weight loss motivation', 'fitness mindset tips', 'healthy lifestyle habits', 'self discipline for fitness'] },
+  easy: {
+    label: '🪑 Easy / Chair',
+    channels: [
+      { id: 'UCOSeFk4ires3UVG2GHEbHHQ', name: 'SilverSneakers' },
+      { id: 'UCCgLoMYIyP0U56dEhEL1wXQ', name: 'Grow Young Fitness' },
+      { id: 'UC-1-zPmGtrOBbchBQ0fSu0g', name: 'HASfit' },
+      { id: 'UCIJwWYOfsCfz6PjxbONYXSg', name: 'Sit and Be Fit' },
+      { id: 'UCOLtE_SBYO3aGH2JiNzAEjg', name: 'Improved Health' },
+      { id: 'UCK9RGzCfXGEIA6W2GQIK4Mg', name: 'More Life Health' },
+      { id: 'UC4ZhhJfMODBNMruFKGHPBmQ', name: 'Senior Fitness with Meredith' },
+      { id: 'UCR7FqmP3piPYSJNxo8ynE-g', name: 'Fitness With Cindy' },
+    ],
+  },
+  moderate: {
+    label: '🚶 Moderate',
+    channels: [
+      { id: 'UCBINFWq52ShSgUFEoynfSwg', name: 'WALK at Home' },
+      { id: 'UC-1-zPmGtrOBbchBQ0fSu0g', name: 'HASfit' },
+      { id: 'UCM1Nde-9eorUhq-teKPUqOA', name: 'Team Body Project' },
+      { id: 'UCpis3RcTw6t47XO0R_KY4lg', name: 'POPSUGAR Fitness' },
+      { id: 'UCBcRGuvGR2qXiALYBE-UERg', name: 'Pahla B Fitness' },
+      { id: 'UCOiGERTfI4LhzqYP_oECHOQ', name: 'Juice & Toya' },
+      { id: 'UCIuvJhfsp-SO72xJGCdY3SA', name: 'growwithjo' },
+      { id: 'UCvGEK5_U-kLgO6-AMDPeTUQ', name: 'Penny Barnshaw' },
+    ],
+  },
+  intermediate: {
+    label: '🏃 Intermediate',
+    channels: [
+      { id: 'UCpQ34afVgk8cRQBjSJ1xuJQ', name: 'MadFit' },
+      { id: 'UCVQJZE_on7It_pEv6tn-jdA', name: 'Sydney Cummings' },
+      { id: 'UCIJwWYOfsCfz6PjxbONYXSg', name: 'FitnessBlender' },
+      { id: 'UC68TLK0mAEzUyHx5x5k-S1Q', name: 'Heather Robertson' },
+      { id: 'UCM1Nde-9eorUhq-teKPUqOA', name: 'Team Body Project' },
+      { id: 'UCK5GY6o42wDiMkj9rEvNs7A', name: 'Caroline Girvan' },
+      { id: 'UCCsx1kuY16yTrOvTBSlIHTg', name: 'Fitness Kaykay' },
+      { id: 'UC97k3hlbE-1rVN8y56zyEEA', name: 'JUICE & TOYA' },
+    ],
+  },
+  advanced: {
+    label: '🔥 Advanced',
+    channels: [
+      { id: 'UCe0TLA0EsQbE-MjuHXevj2A', name: 'THENX' },
+      { id: 'UCGXHiIMcPZ9IQNwmJOv12dQ', name: 'Jeff Nippard' },
+      { id: 'UCERm5yFZ1SptUEU4wZ2vJvw', name: 'Jeremy Ethier' },
+      { id: 'UCK5GY6o42wDiMkj9rEvNs7A', name: 'Caroline Girvan' },
+      { id: 'UCaBqRxHEMomgFU-AkSENMnw', name: 'Chloe Ting' },
+      { id: 'UCfAq1BqwuA9INIPpabe48EA', name: 'Athlean-X' },
+      { id: 'UCOFCwvhDoAzaqB5MBuiQP4g', name: 'Natacha Oceane' },
+      { id: 'UCwrXi5ZknKThezJc2CvNNZA', name: 'Fraser Wilson' },
+    ],
+  },
+  yoga: {
+    label: '🧘 Yoga',
+    channels: [
+      { id: 'UCFKE7WVJfvaHW5q283SxchA', name: 'Yoga With Adriene' },
+      { id: 'UCcgBSeDacWLg4xjAgCXPfOw', name: 'Boho Beautiful Yoga' },
+      { id: 'UC-0CzRZeML8zw4pFTVDq65Q', name: 'SarahBethYoga' },
+      { id: 'UCHJBoCDxaCmx7JCxKIq3-UQ', name: 'Breathe and Flow' },
+      { id: 'UCLkY4jbxLMD46MYHggSoIYg', name: 'Cat Meffan' },
+      { id: 'UCPk6JTfBET30OvSYP6DuBiA', name: 'Travis Eliot' },
+      { id: 'UCXyT8BElASD8B8M_iyVAA9Q', name: 'Kassandra' },
+      { id: 'UCFAQjGCKnGm-h-Hhc7BGNKQ', name: 'Tim Senesi Yoga' },
+    ],
+  },
+  foodtips: {
+    label: '🥗 Food Tips',
+    channels: [
+      { id: 'UCj0V0aG4LcdHmdPJ7aTtSCQ', name: 'Pick Up Limes' },
+      { id: 'UCGXHiIMcPZ9IQNwmJOv12dQ', name: 'Jeff Nippard' },
+      { id: 'UCIaH-gZIVC432YRjNVvnyCA', name: 'Abbey Sharp' },
+      { id: 'UCKScmfMIcP1kJIlSRl1Xhbg', name: 'EatingWell' },
+      { id: 'UCG-KntY7aVnIGXYEBQvmBAQ', name: 'Thomas DeLauer' },
+      { id: 'UCSHkffs2lu3bMDYcNt4JQVQ', name: 'Dr. Eric Berg' },
+      { id: 'UCpyhJZhJQWKDPOdc8FkKnSA', name: 'Mike Israetel' },
+      { id: 'UCLLdi5lFXkOh3UTgfsnU5Qg', name: 'Natacha Oceane' },
+    ],
+  },
+  cooking: {
+    label: '👨‍🍳 Cooking',
+    channels: [
+      { id: 'UCj0V0aG4LcdHmdPJ7aTtSCQ', name: 'Pick Up Limes' },
+      { id: 'UC1RRJCMyFSHGMQrYmMyi0Hw', name: 'Downshiftology' },
+      { id: 'UCcjhYlL1WRBjKaJsMHSbGYQ', name: 'Joshua Weissman' },
+      { id: 'UC9_p50tH3WmMslWRWKnM7dQ', name: 'Adam Ragusea' },
+      { id: 'UCJFp8uSYCjXOMnkUyb3CQ3Q', name: 'Tasty' },
+      { id: 'UCNbngWUqL2eqRw12yAwcICg', name: 'Gordon Ramsay' },
+      { id: 'UCWF2gUMiB_rFJIYiRKLk4Hg', name: 'Ethan Chlebowski' },
+      { id: 'UCW-0FkOQBZ6TMq-F0KNFJ4Q', name: 'Rainbow Plant Life' },
+    ],
+  },
+  mindset: {
+    label: '🧠 Mindset',
+    channels: [
+      { id: 'UCG-KntY7aVnIGXYEBQvmBAQ', name: 'Thomas DeLauer' },
+      { id: 'UC3w193M5tYPJqF0Hi-7U-2g', name: 'Lavendaire' },
+      { id: 'UCkDpk-CG4jqH5OHSNbm8cAA', name: 'Mel Robbins' },
+      { id: 'UCbF-4yQQAWw-UnuCd2Azfzg', name: 'Andrew Huberman' },
+      { id: 'UCIRiWCPZoUde5Y9eNqpUklQ', name: 'The School of Life' },
+      { id: 'UCNjFICBPRffCaZwkdbaHLsQ', name: 'Jay Shetty' },
+      { id: 'UCIHdDJ0tjn_3j-FS7s_X1kQ', name: 'Therapy in a Nutshell' },
+      { id: 'UCkRfAT3uy4Kf5GifMlTXkjg', name: 'Matt D\'Avella' },
+    ],
+  },
 };
 
-function getDailyCategory(userId) {
-  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  const seed = (dayOfYear * 7 + (userId || 1) * 13) % WORKOUT_CATEGORIES.length;
-  return WORKOUT_CATEGORIES[seed];
-}
+// Cache RSS feeds per channel (2 hours)
+const rssCache = {};
+const RSS_CACHE_TTL = 2 * 60 * 60 * 1000;
 
-const videoCache = {};
-
-async function searchVideos(query, maxResults = 6) {
-  const cacheKey = `${query}:${maxResults}`;
-  const cached = videoCache[cacheKey];
+async function fetchChannelFeed(channelId, channelName) {
+  const cached = rssCache[channelId];
   if (cached && cached.expires > Date.now()) return cached.data;
 
   try {
-    const ytRes = await fetch(
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`,
-      {
-        signal: AbortSignal.timeout(10000),
-        headers: { 'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36', 'Accept-Language': 'en-US,en;q=0.9' },
-      }
-    );
-    if (!ytRes.ok) return null;
-    const html = await ytRes.text();
-    const match = html.match(/var ytInitialData = (.+?);<\/script>/);
-    if (!match) return null;
-    const data = JSON.parse(match[1]);
+    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return [];
+    const xml = await res.text();
+    const parsed = xmlParser.parse(xml);
+    let entries = parsed?.feed?.entry || [];
+    if (!Array.isArray(entries)) entries = [entries];
 
-    const contents =
-      data?.contents?.twoColumnSearchResultsRenderer?.primaryContents
-        ?.sectionListRenderer?.contents?.[0]?.itemSectionRenderer?.contents || [];
+    const videos = entries.map((e) => {
+      const videoId = e['yt:videoId'] || '';
+      return {
+        id: videoId,
+        title: e.title || 'Untitled',
+        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+        channel: e.author?.name || channelName || '',
+        videoUrl: e.link?.['@_href'] || `https://www.youtube.com/watch?v=${videoId}`,
+        embedUrl: `https://www.youtube.com/embed/${videoId}`,
+        published: e.published || '',
+      };
+    }).filter((v) => v.id);
 
-    const results = [];
-    for (const item of contents) {
-      const v = item.videoRenderer;
-      if (!v || !v.videoId) continue;
-      const lengthText = v.lengthText?.simpleText || '';
-      const parts = lengthText.split(':').map(Number);
-      let lengthSeconds = 0;
-      if (parts.length === 3) lengthSeconds = parts[0] * 3600 + parts[1] * 60 + parts[2];
-      else if (parts.length === 2) lengthSeconds = parts[0] * 60 + parts[1];
-      results.push({
-        id: v.videoId,
-        title: v.title?.runs?.[0]?.text || 'Untitled',
-        thumbnail: `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
-        channel: v.ownerText?.runs?.[0]?.text || '',
-        videoUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
-        embedUrl: `https://www.youtube.com/embed/${v.videoId}`,
-        lengthSeconds,
-      });
-      if (results.length >= maxResults) break;
-    }
-
-    if (results.length > 0) {
-      videoCache[cacheKey] = { data: results, expires: Date.now() + 6 * 60 * 60 * 1000 };
-      return results;
-    }
+    rssCache[channelId] = { data: videos, expires: Date.now() + RSS_CACHE_TTL };
+    return videos;
   } catch (e) {
-    console.error('YouTube scrape fallback error:', e.message);
+    console.error(`RSS feed error for ${channelName}:`, e.message);
+    return [];
   }
+}
 
-  return null;
+async function getTabVideos(tabId, userId) {
+  const tabDef = VIDEO_TABS[tabId] || VIDEO_TABS.easy;
+  const allVideos = [];
+
+  const feeds = await Promise.all(
+    tabDef.channels.map((ch) => fetchChannelFeed(ch.id, ch.name))
+  );
+  for (const feed of feeds) allVideos.push(...feed);
+
+  // Deterministic daily shuffle based on dayOfYear + userId
+  const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
+  const seed = dayOfYear * 7 + (userId || 1) * 13;
+  const shuffled = allVideos
+    .map((v, i) => ({ v, sort: ((seed + i * 2654435761) >>> 0) % 1000000 }))
+    .sort((a, b) => a.sort - b.sort)
+    .map((x) => x.v);
+
+  return shuffled.slice(0, 12);
 }
 
 app.get('/api/workouts/playlist', auth, async (req, res) => {
   try {
-    const category = getDailyCategory(req.user.id);
-    const results = await searchVideos(`${category} follow along`, 6);
-    res.json({ category, workouts: results || [] });
+    const videos = await getTabVideos('intermediate', req.user.id);
+    res.json({ category: 'workout', workouts: videos.slice(0, 6) });
   } catch (error) {
     console.error('Workout playlist error:', error);
     res.json({ category: 'workout', workouts: [] });
@@ -842,13 +919,16 @@ app.get('/api/workouts/playlist', auth, async (req, res) => {
 app.get('/api/workouts/search', auth, async (req, res) => {
   const { q } = req.query;
   if (!q) return res.json({ query: q, workouts: [] });
-  try {
-    const results = await searchVideos(`${q} workout follow along`, 8);
-    res.json({ query: q, workouts: results || [] });
-  } catch (error) {
-    console.error('Workout search error:', error);
-    res.json({ query: q, workouts: [] });
+  // Search across all cached feeds
+  const term = q.toLowerCase();
+  const allVideos = [];
+  for (const [, cached] of Object.entries(rssCache)) {
+    if (cached.expires > Date.now()) allVideos.push(...cached.data);
   }
+  const matches = allVideos.filter((v) =>
+    v.title.toLowerCase().includes(term) || v.channel.toLowerCase().includes(term)
+  ).slice(0, 8);
+  res.json({ query: q, workouts: matches });
 });
 
 app.get('/api/videos/tabs', auth, (req, res) => {
@@ -860,15 +940,23 @@ app.get('/api/videos/browse', auth, async (req, res) => {
   const { tab, q } = req.query;
   try {
     if (q) {
-      const results = await searchVideos(q, 8);
-      return res.json({ videos: results || [] });
+      // Filter across all tab feeds
+      const term = q.toLowerCase();
+      const allTabs = Object.keys(VIDEO_TABS);
+      const feeds = await Promise.all(
+        allTabs.map((t) => getTabVideos(t, req.user.id))
+      );
+      const allVideos = feeds.flat();
+      const seen = new Set();
+      const matches = allVideos.filter((v) => {
+        if (seen.has(v.id)) return false;
+        seen.add(v.id);
+        return v.title.toLowerCase().includes(term) || v.channel.toLowerCase().includes(term);
+      }).slice(0, 12);
+      return res.json({ videos: matches });
     }
-    const tabDef = VIDEO_TABS[tab] || VIDEO_TABS.exercise;
-    const dayOfYear = Math.floor((Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-    const queryIndex = (dayOfYear + (req.user.id || 0)) % tabDef.queries.length;
-    const query = tabDef.queries[queryIndex];
-    const results = await searchVideos(query, 8);
-    res.json({ videos: results || [], query });
+    const videos = await getTabVideos(tab || 'easy', req.user.id);
+    res.json({ videos });
   } catch (error) {
     console.error('Video browse error:', error);
     res.json({ videos: [] });

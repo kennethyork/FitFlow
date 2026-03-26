@@ -51,6 +51,12 @@ if (process.env.D1_DATABASE_ID) {
   const adapter = new PrismaD1(d1);
   prisma = new PrismaClient({ adapter });
   console.log('Using Cloudflare D1 database');
+} else if (process.env.VERCEL) {
+  console.error('ERROR: D1_DATABASE_ID, D1_ACCOUNT_ID, and D1_API_TOKEN must be set on Vercel');
+  // Create a minimal prisma that throws helpful errors
+  prisma = new Proxy({}, {
+    get: () => { throw new Error('Database not configured. Set D1 env vars in Vercel dashboard.'); }
+  });
 } else {
   const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
   prisma = new PrismaClient({ adapter });

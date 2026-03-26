@@ -22,11 +22,12 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "CAMERA",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "ACTIVITY_RECOGNITION",
-        "VIBRATE"
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.VIBRATE",
+        "android.permission.RECORD_AUDIO"
       ]
     },
     "plugins": [
@@ -45,6 +46,12 @@
           "color": "#6c5ce7"
         }
       ]
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "107a09ed-0668-41de-bb78-a5e44b89e583"
+      }
+    },
+    "owner": "kennethhy"
   }
 }

@@ -8,11 +8,13 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 
 // ── Config ──
-// For dev: 'http://10.0.2.2:5173' (emulator) or 'http://192.168.1.X:5173' (real device)
+// For dev: 'http://10.0.2.2:5173' (emulator) or 'http://192.168.x.x:5173' (real device)
 // For production: your GitHub Pages URL
+const DEV_URL = 'http://10.0.2.2:5173'; // Android emulator
+// const DEV_URL = 'http://192.168.1.X:5173'; // Uncomment for real device (use your local IP)
 const WEB_APP_URL = __DEV__
-  ? 'http://10.0.2.2:5173'
-  : 'https://kennethyork.github.io/FitFlow';
+  ? DEV_URL
+  : 'https://kennethyork.github.io/FitFlow/';
 
 // Configure notifications
 Notifications.setNotificationHandler({

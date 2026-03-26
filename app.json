@@ -1,0 +1,12 @@
+{
+  "expo": {
+    "extra": {
+      "eas": {
+        "projectId": "107a09ed-0668-41de-bb78-a5e44b89e583"
+      }
+    },
+    "android": {
+      "package": "com.kennethhy.fitflow"
+    }
+  }
+}

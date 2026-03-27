@@ -60,6 +60,13 @@ export default function AuthScreen({ onAuth }) {
         if (mode === 'signup') loadCaptcha(); // refresh CAPTCHA on error
         return;
       }
+      // If PayPal checkout is needed (paid tier signup), save token then redirect
+      if (data.checkoutUrl) {
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('user', JSON.stringify(data.user));
+        window.location.href = data.checkoutUrl;
+        return;
+      }
       onAuth(data.token, data.user, mode === 'signup');
     } catch {
       setError('Unable to connect to server');

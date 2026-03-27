@@ -3,15 +3,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const multer = require('multer');
-const { PrismaClient } = require('@prisma/client');
-let PrismaBetterSqlite3;
-if (!process.env.VERCEL) {
-  // Dynamic string prevents Vercel NFT from tracing these dev-only native modules
-  PrismaBetterSqlite3 = require('@prisma/adapter-' + 'better-sqlite3').PrismaBetterSqlite3;
-}
-// @prisma/adapter-d1 depends on ESM-only 'ky', so we lazy-load it
-let PrismaD1;
-const { D1HttpDatabase } = require('./d1Client');
+const { initDb, all, get, run, insert, count } = require('./db');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
 const fs = require('fs');
 const path = require('path');
@@ -54,35 +46,8 @@ app.use('/api/auth/login', authLimiter);
 app.use('/api/auth/signup', authLimiter);
 app.use('/api/', apiLimiter);
 
-// Ensure DB is initialized before handling requests
-app.use('/api', async (req, res, next) => { await dbReady; next(); });
-
-// ── Database adapter ──
-let prisma;
-const initDb = async () => {
-if (process.env.D1_DATABASE_ID) {
-  ({ PrismaD1 } = await import('@prisma/adapter-d1'));
-  const d1 = new D1HttpDatabase({
-    accountId: process.env.D1_ACCOUNT_ID,
-    databaseId: process.env.D1_DATABASE_ID,
-    apiToken: process.env.D1_API_TOKEN,
-  });
-  const adapter = new PrismaD1(d1);
-  prisma = new PrismaClient({ adapter });
-  console.log('Using Cloudflare D1 database');
-} else if (process.env.VERCEL) {
-  console.error('ERROR: D1_DATABASE_ID, D1_ACCOUNT_ID, and D1_API_TOKEN must be set on Vercel');
-  // Create a minimal prisma that throws helpful errors
-  prisma = new Proxy({}, {
-    get: () => { throw new Error('Database not configured. Set D1 env vars in Vercel dashboard.'); }
-  });
-} else {
-  const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL });
-  prisma = new PrismaClient({ adapter });
-  console.log('Using local SQLite database');
-}
-};
-const dbReady = initDb();
+// ── Database ──
+initDb();
 const uploadDir = process.env.VERCEL ? '/tmp' : 'uploads/';
 const upload = multer({ dest: uploadDir, limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -208,9 +173,8 @@ const TIER_LIMITS = {
 // Debug: test DB connection
 app.get('/api/debug/db', async (req, res) => {
   try {
-    await dbReady;
-    const count = await prisma.user.count();
-    res.json({ ok: true, userCount: count, dbType: process.env.D1_DATABASE_ID ? 'd1' : 'sqlite' });
+    const cnt = await count('User');
+    res.json({ ok: true, userCount: cnt, dbType: process.env.D1_DATABASE_ID ? 'd1' : 'sqlite' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message, stack: err.stack?.split('\n').slice(0, 5) });
   }
@@ -237,13 +201,13 @@ app.post('/api/auth/signup', async (req, res) => {
     const validTiers = ['free', 'pro', 'premium', 'unlimited'];
     const chosenTier = validTiers.includes(tier) ? tier : 'free';
 
-    const existing = await prisma.user.findUnique({ where: { email } });
+    const existing = await get('SELECT "id" FROM "User" WHERE "email" = ?', email);
     if (existing) return res.status(409).json({ error: 'Email already registered' });
 
     const hash = await bcrypt.hash(password, 10);
     const verifyToken = generateVerifyToken();
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-    const user = await prisma.user.create({ data: { email, password: hash, name, tier: chosenTier, verifyToken, verifyExpires } });
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
+    const user = await insert('User', { email, password: hash, name: name || null, tier: chosenTier, verifyToken, verifyExpires });
 
     // Send verification email (non-blocking)
     sendVerificationEmail(email, verifyToken).catch(err => console.error('Failed to send verification email:', err));
@@ -261,13 +225,13 @@ app.get('/api/auth/verify', async (req, res) => {
     const { token } = req.query;
     if (!token) return res.status(400).json({ error: 'Verification token required' });
 
-    const user = await prisma.user.findFirst({ where: { verifyToken: token } });
+    const user = await get('SELECT * FROM "User" WHERE "verifyToken" = ?', token);
     if (!user) return res.status(400).json({ error: 'Invalid verification link' });
     if (user.verifyExpires && new Date(user.verifyExpires) < new Date()) {
       return res.status(400).json({ error: 'Verification link expired. Please request a new one.' });
     }
 
-    await prisma.user.update({ where: { id: user.id }, data: { emailVerified: true, verifyToken: null, verifyExpires: null } });
+    await run('UPDATE "User" SET "emailVerified" = 1, "verifyToken" = NULL, "verifyExpires" = NULL WHERE "id" = ?', user.id);
     res.json({ message: 'Email verified successfully' });
   } catch (error) {
     console.error(error);
@@ -277,13 +241,13 @@ app.get('/api/auth/verify', async (req, res) => {
 
 app.post('/api/auth/resend-verification', auth, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     if (user.emailVerified) return res.json({ message: 'Email already verified' });
 
     const verifyToken = generateVerifyToken();
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000);
-    await prisma.user.update({ where: { id: user.id }, data: { verifyToken, verifyExpires } });
+    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    await run('UPDATE "User" SET "verifyToken" = ?, "verifyExpires" = ? WHERE "id" = ?', verifyToken, verifyExpires, user.id);
     await sendVerificationEmail(user.email, verifyToken);
     res.json({ message: 'Verification email sent' });
   } catch (error) {
@@ -297,7 +261,7 @@ app.post('/api/auth/login', async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
 
-    const user = await prisma.user.findUnique({ where: { email } });
+    const user = await get('SELECT * FROM "User" WHERE "email" = ?', email);
     if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
     const valid = await bcrypt.compare(password, user.password);
@@ -313,7 +277,7 @@ app.post('/api/auth/login', async (req, res) => {
 
 app.get('/api/auth/me', auth, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { id: true, email: true, name: true, tier: true, onboarded: true, calorieGoal: true, goalType: true, activityLevel: true, createdAt: true, emailVerified: true } });
+    const user = await get('SELECT "id","email","name","tier","onboarded","calorieGoal","goalType","activityLevel","createdAt","emailVerified" FROM "User" WHERE "id" = ?', req.user.id);
     if (!user) return res.status(404).json({ error: 'User not found' });
     res.json(user);
   } catch (error) {
@@ -329,7 +293,8 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
 
     // Downgrade to free — no payment needed
     if (tier === 'free') {
-      const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
+      await run('UPDATE "User" SET "tier" = ? WHERE "id" = ?', tier, req.user.id);
+      const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
       const token = signToken(user);
       return res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
     }
@@ -366,7 +331,8 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
     }
 
     // Dev fallback: no payment provider configured, upgrade directly
-    const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
+    await run('UPDATE "User" SET "tier" = ? WHERE "id" = ?', tier, req.user.id);
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
   } catch (error) {
@@ -406,7 +372,8 @@ app.post('/api/paypal/capture', auth, async (req, res) => {
       return res.status(400).json({ error: 'Invalid tier in payment' });
     }
 
-    const user = await prisma.user.update({ where: { id: req.user.id }, data: { tier } });
+    await run('UPDATE "User" SET "tier" = ? WHERE "id" = ?', tier, req.user.id);
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const token = signToken(user);
     console.log(`PayPal: upgraded user ${req.user.id} to ${tier} (order ${orderId})`);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
@@ -419,12 +386,15 @@ app.post('/api/paypal/capture', auth, async (req, res) => {
 app.post('/api/auth/onboard', auth, async (req, res) => {
   try {
     const { name, goalType, activityLevel, calorieGoal } = req.body;
-    const data = { onboarded: true };
+    const data = { onboarded: 1 };
     if (name) data.name = name;
     if (['lose', 'maintain', 'gain'].includes(goalType)) data.goalType = goalType;
     if (['sedentary', 'light', 'moderate', 'active'].includes(activityLevel)) data.activityLevel = activityLevel;
     if (calorieGoal && calorieGoal > 0) data.calorieGoal = calorieGoal;
-    const user = await prisma.user.update({ where: { id: req.user.id }, data });
+    const sets = Object.keys(data).map(k => `"${k}" = ?`).join(', ');
+    const vals = Object.values(data);
+    await run(`UPDATE "User" SET ${sets} WHERE "id" = ?`, ...vals, req.user.id);
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal } });
   } catch (error) {
@@ -442,7 +412,7 @@ app.put('/api/auth/profile', auth, async (req, res) => {
     if (email !== undefined) {
       const clean = String(email).trim().toLowerCase();
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) return res.status(400).json({ error: 'Invalid email' });
-      const existing = await prisma.user.findUnique({ where: { email: clean } });
+      const existing = await get('SELECT "id" FROM "User" WHERE "email" = ?', clean);
       if (existing && existing.id !== req.user.id) return res.status(409).json({ error: 'Email already in use' });
       data.email = clean;
     }
@@ -450,7 +420,9 @@ app.put('/api/auth/profile', auth, async (req, res) => {
     if (['sedentary', 'light', 'moderate', 'active'].includes(activityLevel)) data.activityLevel = activityLevel;
     if (calorieGoal && Number(calorieGoal) > 0) data.calorieGoal = Number(calorieGoal);
     if (Object.keys(data).length === 0) return res.status(400).json({ error: 'No fields to update' });
-    const user = await prisma.user.update({ where: { id: req.user.id }, data });
+    const sets = Object.keys(data).map(k => `"${k}" = ?`).join(', ');
+    await run(`UPDATE "User" SET ${sets} WHERE "id" = ?`, ...Object.values(data), req.user.id);
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const token = signToken(user);
     res.json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, goalType: user.goalType, activityLevel: user.activityLevel, createdAt: user.createdAt } });
   } catch (error) {
@@ -464,11 +436,11 @@ app.put('/api/auth/password', auth, async (req, res) => {
     const { currentPassword, newPassword } = req.body;
     if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
     if (newPassword.length < 6) return res.status(400).json({ error: 'New password must be at least 6 characters' });
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const valid = await bcrypt.compare(currentPassword, user.password);
     if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
     const hash = await bcrypt.hash(newPassword, 10);
-    await prisma.user.update({ where: { id: req.user.id }, data: { password: hash } });
+    await run('UPDATE "User" SET "password" = ? WHERE "id" = ?', hash, req.user.id);
     res.json({ message: 'Password updated' });
   } catch (error) {
     console.error(error);
@@ -480,10 +452,10 @@ app.delete('/api/auth/account', auth, async (req, res) => {
   try {
     const { password } = req.body;
     if (!password) return res.status(400).json({ error: 'Password required to delete account' });
-    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) return res.status(401).json({ error: 'Incorrect password' });
-    await prisma.user.delete({ where: { id: req.user.id } });
+    await run('DELETE FROM "User" WHERE "id" = ?', req.user.id);
     res.json({ message: 'Account deleted' });
   } catch (error) {
     console.error(error);
@@ -499,10 +471,10 @@ app.post('/api/food/logs', auth, async (req, res) => {
     const limit = TIER_LIMITS[req.user.tier]?.foodLogs || 5;
     if (limit > 0) {
       const today = new Date(); today.setHours(0,0,0,0);
-      const count = await prisma.foodLog.count({ where: { userId, loggedAt: { gte: today } } });
-      if (count >= limit) return res.status(403).json({ error: `Daily food log limit (${limit}) reached. Upgrade for more.`, upgrade: true });
+      const cnt = await count('FoodLog', '"userId" = ? AND "loggedAt" >= ?', userId, today.toISOString());
+      if (cnt >= limit) return res.status(403).json({ error: `Daily food log limit (${limit}) reached. Upgrade for more.`, upgrade: true });
     }
-    const foodLog = await prisma.foodLog.create({ data: { userId, meal, calories, protein, carbs, fat, imageUrl } });
+    const foodLog = await insert('FoodLog', { userId, meal, calories, protein, carbs, fat, imageUrl: imageUrl || null });
     res.json(foodLog);
   } catch (error) {
     console.error(error);
@@ -512,7 +484,7 @@ app.post('/api/food/logs', auth, async (req, res) => {
 
 app.get('/api/food/logs', auth, async (req, res) => {
   try {
-    const logs = await prisma.foodLog.findMany({ where: { userId: req.user.id }, orderBy: { loggedAt: 'desc' } });
+    const logs = await all('SELECT * FROM "FoodLog" WHERE "userId" = ? ORDER BY "loggedAt" DESC', req.user.id);
     res.json(logs);
   } catch (error) {
     console.error(error);
@@ -524,12 +496,10 @@ app.put('/api/food/logs/:id', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
     const { meal, calories, protein, carbs, fat } = req.body;
-    const existing = await prisma.foodLog.findUnique({ where: { id } });
+    const existing = await get('SELECT * FROM "FoodLog" WHERE "id" = ?', id);
     if (!existing || existing.userId !== req.user.id) return res.status(404).json({ error: 'Log not found' });
-    const updated = await prisma.foodLog.update({
-      where: { id },
-      data: { meal, calories, protein, carbs, fat },
-    });
+    await run('UPDATE "FoodLog" SET "meal" = ?, "calories" = ?, "protein" = ?, "carbs" = ?, "fat" = ? WHERE "id" = ?', meal, calories, protein, carbs, fat, id);
+    const updated = await get('SELECT * FROM "FoodLog" WHERE "id" = ?', id);
     res.json(updated);
   } catch (error) {
     console.error(error);
@@ -540,9 +510,9 @@ app.put('/api/food/logs/:id', auth, async (req, res) => {
 app.delete('/api/food/logs/:id', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const existing = await prisma.foodLog.findUnique({ where: { id } });
+    const existing = await get('SELECT * FROM "FoodLog" WHERE "id" = ?', id);
     if (!existing || existing.userId !== req.user.id) return res.status(404).json({ error: 'Log not found' });
-    await prisma.foodLog.delete({ where: { id } });
+    await run('DELETE FROM "FoodLog" WHERE "id" = ?', id);
     res.json({ deleted: true, refunded: { calories: existing.calories, protein: existing.protein, carbs: existing.carbs, fat: existing.fat } });
   } catch (error) {
     console.error(error);
@@ -739,7 +709,7 @@ app.post('/api/coach/query', auth, async (req, res) => {
 // ── Favorite Meals (Pro+ only) ──
 app.get('/api/food/favorites', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
   try {
-    const favs = await prisma.favoriteMeal.findMany({ where: { userId: req.user.id }, orderBy: { createdAt: 'desc' }, take: 50 });
+    const favs = await all('SELECT * FROM "FavoriteMeal" WHERE "userId" = ? ORDER BY "createdAt" DESC LIMIT 50', req.user.id);
     res.json(favs);
   } catch (error) {
     console.error(error);
@@ -751,7 +721,7 @@ app.post('/api/food/favorites', auth, requireTier('pro', 'premium', 'unlimited')
   try {
     const { meal, calories, protein, carbs, fat } = req.body;
     if (!meal) return res.status(400).json({ error: 'Meal name required' });
-    const fav = await prisma.favoriteMeal.create({ data: { userId: req.user.id, meal, calories: calories || 0, protein: protein || 0, carbs: carbs || 0, fat: fat || 0 } });
+    const fav = await insert('FavoriteMeal', { userId: req.user.id, meal, calories: calories || 0, protein: protein || 0, carbs: carbs || 0, fat: fat || 0 });
     res.json(fav);
   } catch (error) {
     console.error(error);
@@ -761,7 +731,7 @@ app.post('/api/food/favorites', auth, requireTier('pro', 'premium', 'unlimited')
 
 app.delete('/api/food/favorites/:id', auth, requireTier('pro', 'premium', 'unlimited'), async (req, res) => {
   try {
-    await prisma.favoriteMeal.deleteMany({ where: { id: parseInt(req.params.id), userId: req.user.id } });
+    await run('DELETE FROM "FavoriteMeal" WHERE "id" = ? AND "userId" = ?', parseInt(req.params.id), req.user.id);
     res.json({ deleted: true });
   } catch (error) {
     console.error(error);
@@ -823,7 +793,7 @@ function getDailyMeals(userId, goalType) {
 }
 
 app.get('/api/meals', auth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
+  const user = await get('SELECT "goalType" FROM "User" WHERE "id" = ?', req.user.id);
   const goalType = user?.goalType || 'lose';
   const meals = getDailyMeals(req.user.id, goalType);
   res.json(meals);
@@ -1077,9 +1047,9 @@ async function ensureHabits(userId, goalType) {
   const { daily, weekly, monthly } = getCurrentPeriods();
 
   const [dCount, wCount, mCount] = await Promise.all([
-    prisma.habit.count({ where: { userId, source: 'daily', period: daily } }),
-    prisma.habit.count({ where: { userId, source: 'weekly', period: weekly } }),
-    prisma.habit.count({ where: { userId, source: 'monthly', period: monthly } }),
+    count('Habit', '"userId" = ? AND "source" = ? AND "period" = ?', userId, 'daily', daily),
+    count('Habit', '"userId" = ? AND "source" = ? AND "period" = ?', userId, 'weekly', weekly),
+    count('Habit', '"userId" = ? AND "source" = ? AND "period" = ?', userId, 'monthly', monthly),
   ]);
 
   const inserts = [];
@@ -1095,30 +1065,17 @@ async function ensureHabits(userId, goalType) {
     for (const t of getMonthlyChallenges(userId, goalType))
       inserts.push({ userId, title: t.title, source: 'monthly', period: monthly });
   }
-  if (inserts.length) await prisma.habit.createMany({ data: inserts });
+  for (const row of inserts) {
+    await insert('Habit', row);
+  }
 
-  return prisma.habit.findMany({
-    where: {
-      userId,
-      OR: [
-        { source: 'daily', period: daily },
-        { source: 'weekly', period: weekly },
-        { source: 'monthly', period: monthly },
-        { source: 'custom' },
-        { source: 'coach' },
-      ],
-    },
-    orderBy: { createdAt: 'asc' },
-  });
+  return all('SELECT * FROM "Habit" WHERE "userId" = ? AND (("source" = ? AND "period" = ?) OR ("source" = ? AND "period" = ?) OR ("source" = ? AND "period" = ?) OR "source" = ? OR "source" = ?) ORDER BY "createdAt" ASC',
+    userId, 'daily', daily, 'weekly', weekly, 'monthly', monthly, 'custom', 'coach');
 }
 
 // ── Chat History API (persisted in DB) ──
 app.get('/api/chat', auth, async (req, res) => {
-  const messages = await prisma.chatMessage.findMany({
-    where: { userId: req.user.id },
-    orderBy: { createdAt: 'asc' },
-    take: 200,
-  });
+  const messages = await all('SELECT * FROM "ChatMessage" WHERE "userId" = ? ORDER BY "createdAt" ASC LIMIT 200', req.user.id);
   res.json(messages.map(m => ({ role: m.role, text: m.text })));
 });
 
@@ -1129,19 +1086,21 @@ app.post('/api/chat', auth, async (req, res) => {
     .filter(m => m.role && m.text)
     .map(m => ({ userId: req.user.id, role: String(m.role).slice(0, 10), text: String(m.text).slice(0, 5000) }));
   if (data.length === 0) return res.status(400).json({ error: 'invalid messages' });
-  await prisma.chatMessage.createMany({ data });
+  for (const m of data) {
+    await insert('ChatMessage', m);
+  }
   res.json({ saved: data.length });
 });
 
 app.delete('/api/chat', auth, async (req, res) => {
-  await prisma.chatMessage.deleteMany({ where: { userId: req.user.id } });
+  await run('DELETE FROM "ChatMessage" WHERE "userId" = ?', req.user.id);
   res.json({ cleared: true });
 });
 
 // Habit management API (DB-backed)
 app.get('/api/habits', auth, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { goalType: true } });
+    const user = await get('SELECT "goalType" FROM "User" WHERE "id" = ?', req.user.id);
     const habits = await ensureHabits(req.user.id, user?.goalType || 'lose');
     res.json(habits);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to load habits' }); }
@@ -1149,15 +1108,15 @@ app.get('/api/habits', auth, async (req, res) => {
 
 app.post('/api/habits', auth, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({ where: { id: req.user.id }, select: { tier: true } });
+    const user = await get('SELECT "tier" FROM "User" WHERE "id" = ?', req.user.id);
     const limit = TIER_LIMITS[user?.tier || 'free']?.habits || 3;
     if (limit > 0) {
-      const count = await prisma.habit.count({ where: { userId: req.user.id, source: { in: ['custom', 'coach'] } } });
-      if (count >= limit) return res.status(403).json({ error: `Habit limit (${limit}) reached. Upgrade for more.`, upgrade: true });
+      const cnt = await count('Habit', '"userId" = ? AND "source" IN (?, ?)', req.user.id, 'custom', 'coach');
+      if (cnt >= limit) return res.status(403).json({ error: `Habit limit (${limit}) reached. Upgrade for more.`, upgrade: true });
     }
     const { title } = req.body;
     if (!title?.trim()) return res.status(400).json({ error: 'Title required' });
-    const habit = await prisma.habit.create({ data: { userId: req.user.id, title: title.trim(), source: 'custom', period: '' } });
+    const habit = await insert('Habit', { userId: req.user.id, title: title.trim(), source: 'custom', period: '' });
     res.status(201).json(habit);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to add habit' }); }
 });
@@ -1166,7 +1125,7 @@ app.post('/api/habits/assign', auth, async (req, res) => {
   try {
     const { title } = req.body;
     if (!title?.trim()) return res.status(400).json({ error: 'Task title required' });
-    const habit = await prisma.habit.create({ data: { userId: req.user.id, title: title.trim(), source: 'coach', period: '' } });
+    const habit = await insert('Habit', { userId: req.user.id, title: title.trim(), source: 'coach', period: '' });
     res.status(201).json(habit);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to assign habit' }); }
 });
@@ -1174,9 +1133,10 @@ app.post('/api/habits/assign', auth, async (req, res) => {
 app.put('/api/habits/:id/toggle', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const habit = await prisma.habit.findFirst({ where: { id, userId: req.user.id } });
+    const habit = await get('SELECT * FROM "Habit" WHERE "id" = ? AND "userId" = ?', id, req.user.id);
     if (!habit) return res.status(404).json({ error: 'Habit not found' });
-    const updated = await prisma.habit.update({ where: { id }, data: { completed: !habit.completed } });
+    await run('UPDATE "Habit" SET "completed" = ? WHERE "id" = ?', habit.completed ? 0 : 1, id);
+    const updated = await get('SELECT * FROM "Habit" WHERE "id" = ?', id);
     res.json(updated);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to toggle habit' }); }
 });
@@ -1184,11 +1144,11 @@ app.put('/api/habits/:id/toggle', auth, async (req, res) => {
 app.delete('/api/habits/:id', auth, async (req, res) => {
   try {
     const id = parseInt(req.params.id, 10);
-    const habit = await prisma.habit.findFirst({ where: { id, userId: req.user.id } });
+    const habit = await get('SELECT * FROM "Habit" WHERE "id" = ? AND "userId" = ?', id, req.user.id);
     if (!habit) return res.status(404).json({ error: 'Habit not found' });
     if (habit.source !== 'custom' && habit.source !== 'coach')
       return res.status(400).json({ error: 'Only custom/coach habits can be deleted' });
-    await prisma.habit.delete({ where: { id } });
+    await run('DELETE FROM "Habit" WHERE "id" = ?', id);
     res.json({ deleted: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to delete habit' }); }
 });
@@ -1512,21 +1472,21 @@ app.get('/api/videos/browse', auth, async (req, res) => {
 app.post('/api/weight', auth, async (req, res) => {
   try {
     const { weight, unit } = req.body;
-    const log = await prisma.weightLog.create({ data: { userId: req.user.id, weight: parseFloat(weight), unit: unit || 'lbs' } });
+    const log = await insert('WeightLog', { userId: req.user.id, weight: parseFloat(weight), unit: unit || 'lbs' });
     res.json(log);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to log weight' }); }
 });
 
 app.get('/api/weight', auth, async (req, res) => {
   try {
-    const logs = await prisma.weightLog.findMany({ where: { userId: req.user.id }, orderBy: { loggedAt: 'desc' }, take: 90 });
+    const logs = await all('SELECT * FROM "WeightLog" WHERE "userId" = ? ORDER BY "loggedAt" DESC LIMIT 90', req.user.id);
     res.json(logs);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to fetch weight logs' }); }
 });
 
 app.delete('/api/weight/:id', auth, async (req, res) => {
   try {
-    await prisma.weightLog.deleteMany({ where: { id: parseInt(req.params.id, 10), userId: req.user.id } });
+    await run('DELETE FROM "WeightLog" WHERE "id" = ? AND "userId" = ?', parseInt(req.params.id, 10), req.user.id);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed to delete' }); }
 });
@@ -1536,7 +1496,7 @@ app.get('/api/water/today', auth, async (req, res) => {
   try {
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
-    const log = await prisma.waterLog.findFirst({ where: { userId: req.user.id, loggedAt: { gte: start, lte: end } } });
+    const log = await get('SELECT * FROM "WaterLog" WHERE "userId" = ? AND "loggedAt" >= ? AND "loggedAt" <= ?', req.user.id, start.toISOString(), end.toISOString());
     res.json(log || { glasses: 0 });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
@@ -1546,12 +1506,13 @@ app.post('/api/water', auth, async (req, res) => {
     const { glasses } = req.body;
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
-    const existing = await prisma.waterLog.findFirst({ where: { userId: req.user.id, loggedAt: { gte: start, lte: end } } });
+    const existing = await get('SELECT * FROM "WaterLog" WHERE "userId" = ? AND "loggedAt" >= ? AND "loggedAt" <= ?', req.user.id, start.toISOString(), end.toISOString());
     if (existing) {
-      const updated = await prisma.waterLog.update({ where: { id: existing.id }, data: { glasses: parseInt(glasses, 10) } });
+      await run('UPDATE "WaterLog" SET "glasses" = ? WHERE "id" = ?', parseInt(glasses, 10), existing.id);
+      const updated = await get('SELECT * FROM "WaterLog" WHERE "id" = ?', existing.id);
       return res.json(updated);
     }
-    const log = await prisma.waterLog.create({ data: { userId: req.user.id, glasses: parseInt(glasses, 10) } });
+    const log = await insert('WaterLog', { userId: req.user.id, glasses: parseInt(glasses, 10) });
     res.json(log);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
@@ -1569,21 +1530,21 @@ app.post('/api/progress-photos', auth, upload.single('image'), async (req, res) 
       fs.renameSync(req.file.path, target);
       imageUrl = `/uploads/${path.basename(target)}`;
     }
-    const photo = await prisma.progressPhoto.create({ data: { userId: req.user.id, imageUrl, note: req.body.note || null } });
+    const photo = await insert('ProgressPhoto', { userId: req.user.id, imageUrl, note: req.body.note || null });
     res.json(photo);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Upload failed' }); }
 });
 
 app.get('/api/progress-photos', auth, async (req, res) => {
   try {
-    const photos = await prisma.progressPhoto.findMany({ where: { userId: req.user.id }, orderBy: { loggedAt: 'desc' }, take: 50 });
+    const photos = await all('SELECT * FROM "ProgressPhoto" WHERE "userId" = ? ORDER BY "loggedAt" DESC LIMIT 50', req.user.id);
     res.json(photos);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
 
 app.delete('/api/progress-photos/:id', auth, async (req, res) => {
   try {
-    await prisma.progressPhoto.deleteMany({ where: { id: parseInt(req.params.id, 10), userId: req.user.id } });
+    await run('DELETE FROM "ProgressPhoto" WHERE "id" = ? AND "userId" = ?', parseInt(req.params.id, 10), req.user.id);
     res.json({ ok: true });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
@@ -1593,7 +1554,7 @@ app.get('/api/steps/today', auth, async (req, res) => {
   try {
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
-    const log = await prisma.stepLog.findFirst({ where: { userId: req.user.id, loggedAt: { gte: start, lte: end } } });
+    const log = await get('SELECT * FROM "StepLog" WHERE "userId" = ? AND "loggedAt" >= ? AND "loggedAt" <= ?', req.user.id, start.toISOString(), end.toISOString());
     res.json(log || { steps: 0 });
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
@@ -1603,19 +1564,20 @@ app.post('/api/steps', auth, async (req, res) => {
     const { steps } = req.body;
     const start = new Date(); start.setHours(0,0,0,0);
     const end = new Date(); end.setHours(23,59,59,999);
-    const existing = await prisma.stepLog.findFirst({ where: { userId: req.user.id, loggedAt: { gte: start, lte: end } } });
+    const existing = await get('SELECT * FROM "StepLog" WHERE "userId" = ? AND "loggedAt" >= ? AND "loggedAt" <= ?', req.user.id, start.toISOString(), end.toISOString());
     if (existing) {
-      const updated = await prisma.stepLog.update({ where: { id: existing.id }, data: { steps: parseInt(steps, 10) } });
+      await run('UPDATE "StepLog" SET "steps" = ? WHERE "id" = ?', parseInt(steps, 10), existing.id);
+      const updated = await get('SELECT * FROM "StepLog" WHERE "id" = ?', existing.id);
       return res.json(updated);
     }
-    const log = await prisma.stepLog.create({ data: { userId: req.user.id, steps: parseInt(steps, 10) } });
+    const log = await insert('StepLog', { userId: req.user.id, steps: parseInt(steps, 10) });
     res.json(log);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
 
 app.get('/api/steps', auth, async (req, res) => {
   try {
-    const logs = await prisma.stepLog.findMany({ where: { userId: req.user.id }, orderBy: { loggedAt: 'desc' }, take: 30 });
+    const logs = await all('SELECT * FROM "StepLog" WHERE "userId" = ? ORDER BY "loggedAt" DESC LIMIT 30', req.user.id);
     res.json(logs);
   } catch (e) { console.error(e); res.status(500).json({ error: 'Failed' }); }
 });
@@ -1655,14 +1617,13 @@ app.get('/api/progress/streaks', auth, async (req, res) => {
   try {
     const userId = req.user.id;
     // Get all food log dates
-    const foodLogs = await prisma.foodLog.findMany({ where: { userId }, select: { loggedAt: true }, orderBy: { loggedAt: 'desc' } });
-    const logDates = new Set(foodLogs.map(l => l.loggedAt.toISOString().slice(0, 10)));
+    const foodLogs = await all('SELECT "loggedAt" FROM "FoodLog" WHERE "userId" = ? ORDER BY "loggedAt" DESC', userId);
+    const logDates = new Set(foodLogs.map(l => new Date(l.loggedAt).toISOString().slice(0, 10)));
 
     // Calculate current streak
     let streak = 0;
     const today = new Date(); today.setHours(0,0,0,0);
     const d = new Date(today);
-    // Check today first, if not logged, check yesterday as start
     if (!logDates.has(d.toISOString().slice(0, 10))) {
       d.setDate(d.getDate() - 1);
     }
@@ -1678,17 +1639,17 @@ app.get('/api/progress/streaks', auth, async (req, res) => {
     const totalMeals = foodLogs.length;
 
     // Total weight entries
-    const weightCount = await prisma.weightLog.count({ where: { userId } });
+    const weightCount = await count('WeightLog', '"userId" = ?', userId);
 
     // Total habits completed (all time)
-    const habitsCompleted = await prisma.habit.count({ where: { userId, completed: true } });
+    const habitsCompleted = await count('Habit', '"userId" = ? AND "completed" = 1', userId);
 
     // Total steps logged
-    const stepLogs = await prisma.stepLog.findMany({ where: { userId }, select: { steps: true } });
+    const stepLogs = await all('SELECT "steps" FROM "StepLog" WHERE "userId" = ?', userId);
     const totalSteps = stepLogs.reduce((s, l) => s + l.steps, 0);
 
     // Water streaks (days with >= 8 glasses)
-    const waterLogs = await prisma.waterLog.findMany({ where: { userId, glasses: { gte: 8 } }, select: { loggedAt: true } });
+    const waterLogs = await all('SELECT "loggedAt" FROM "WaterLog" WHERE "userId" = ? AND "glasses" >= 8', userId);
     const waterDays = waterLogs.length;
 
     // Calculate badges
@@ -1720,34 +1681,35 @@ app.get('/api/progress/weekly', auth, async (req, res) => {
     const userId = req.user.id;
     const now = new Date();
     const weekAgo = new Date(now); weekAgo.setDate(weekAgo.getDate() - 7); weekAgo.setHours(0,0,0,0);
+    const weekAgoISO = weekAgo.toISOString();
 
     // Food logs this week
-    const foodLogs = await prisma.foodLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const foodLogs = await all('SELECT * FROM "FoodLog" WHERE "userId" = ? AND "loggedAt" >= ?', userId, weekAgoISO);
     const totalCals = foodLogs.reduce((s, l) => s + l.calories, 0);
     const totalProtein = foodLogs.reduce((s, l) => s + l.protein, 0);
     const totalCarbs = foodLogs.reduce((s, l) => s + l.carbs, 0);
     const totalFat = foodLogs.reduce((s, l) => s + l.fat, 0);
     const avgCals = foodLogs.length ? Math.round(totalCals / 7) : 0;
-    const daysLogged = new Set(foodLogs.map(l => l.loggedAt.toISOString().slice(0, 10))).size;
+    const daysLogged = new Set(foodLogs.map(l => new Date(l.loggedAt).toISOString().slice(0, 10))).size;
 
     // Weight change
-    const weightLogs = await prisma.weightLog.findMany({ where: { userId }, orderBy: { loggedAt: 'desc' }, take: 30 });
-    const recentWeight = weightLogs.find(w => w.loggedAt >= weekAgo);
-    const prevWeight = weightLogs.find(w => w.loggedAt < weekAgo);
+    const weightLogs = await all('SELECT * FROM "WeightLog" WHERE "userId" = ? ORDER BY "loggedAt" DESC LIMIT 30', userId);
+    const recentWeight = weightLogs.find(w => new Date(w.loggedAt) >= weekAgo);
+    const prevWeight = weightLogs.find(w => new Date(w.loggedAt) < weekAgo);
     const weightChange = (recentWeight && prevWeight) ? +(recentWeight.weight - prevWeight.weight).toFixed(1) : null;
     const currentWeight = weightLogs[0] || null;
 
     // Habits completed this week
-    const habits = await prisma.habit.findMany({ where: { userId, completed: true, createdAt: { gte: weekAgo } } });
+    const habits = await all('SELECT * FROM "Habit" WHERE "userId" = ? AND "completed" = 1 AND "createdAt" >= ?', userId, weekAgoISO);
     const habitsCompleted = habits.length;
 
     // Steps this week
-    const stepLogs = await prisma.stepLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const stepLogs = await all('SELECT * FROM "StepLog" WHERE "userId" = ? AND "loggedAt" >= ?', userId, weekAgoISO);
     const totalSteps = stepLogs.reduce((s, l) => s + l.steps, 0);
     const avgSteps = stepLogs.length ? Math.round(totalSteps / 7) : 0;
 
     // Water this week
-    const waterLogs = await prisma.waterLog.findMany({ where: { userId, loggedAt: { gte: weekAgo } } });
+    const waterLogs = await all('SELECT * FROM "WaterLog" WHERE "userId" = ? AND "loggedAt" >= ?', userId, weekAgoISO);
     const waterGoalDays = waterLogs.filter(w => w.glasses >= 8).length;
     const avgWater = waterLogs.length ? +(waterLogs.reduce((s, w) => s + w.glasses, 0) / 7).toFixed(1) : 0;
 
@@ -1756,7 +1718,7 @@ app.get('/api/progress/weekly', auth, async (req, res) => {
     for (let i = 6; i >= 0; i--) {
       const d = new Date(now); d.setDate(d.getDate() - i); d.setHours(0,0,0,0);
       const dayStr = d.toISOString().slice(0, 10);
-      const dayCals = foodLogs.filter(l => l.loggedAt.toISOString().slice(0, 10) === dayStr).reduce((s, l) => s + l.calories, 0);
+      const dayCals = foodLogs.filter(l => new Date(l.loggedAt).toISOString().slice(0, 10) === dayStr).reduce((s, l) => s + l.calories, 0);
       calorieByDay.push({ date: dayStr, day: d.toLocaleDateString('en', { weekday: 'short' }), calories: dayCals });
     }
 

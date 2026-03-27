@@ -1,7 +1,7 @@
 {
   "version": 2,
   "framework": null,
-  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional && npx --yes prisma generate",
+  "installCommand": "cd server && npm ci --omit=dev --omit=peer --omit=optional",
   "buildCommand": "mkdir -p dist && echo '<!DOCTYPE html><html><body>FitFlow API</body></html>' > dist/index.html",
   "outputDirectory": "dist",
   "functions": {

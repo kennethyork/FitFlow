@@ -11,6 +11,7 @@ import { generateTasks, currentPeriodKeys } from './taskGenerator.js';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 import { fetchCategoryVideos, searchCachedVideos, VIDEO_CATEGORIES } from './youtubeRSS.js';
+import { fetchRecipeFeeds, pickDailyMeals } from './recipeRSS.js';
 
 const TABS = [
   { id: 'home', icon: '🏠', label: 'Home' },
@@ -272,6 +273,12 @@ function App() {
 
         // Load food reference database in background
         loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
+
+        // Load RSS recipe feeds for daily meal plan
+        fetchRecipeFeeds().then((rssRecipes) => {
+          const meals = pickDailyMeals(rssRecipes);
+          setDailyMeals(meals);
+        }).catch(console.error);
       } catch (err) {
         console.error(err);
         setLoadError('Unable to load local data.');
@@ -527,13 +534,13 @@ function App() {
       // Get food suggestions from FDC database
       const foodSuggestions = getSuggestionsLocal(remaining, user?.goalType || 'lose');
 
-      // Also include user's saved recipes that fit remaining calories
-      const recipes = await db.getRecipes();
+      // Include user's saved recipes that fit remaining calories
+      const userRecipes = await db.getRecipes();
       const maxCal = remaining > 0 ? remaining : 500;
-      const recipeSuggestions = recipes
+      const savedSuggestions = userRecipes
         .filter((r) => r.calories > 0 && r.calories <= maxCal)
         .sort(() => Math.random() - 0.5)
-        .slice(0, 3)
+        .slice(0, 2)
         .map((r) => ({
           name: `📖 ${r.name}`,
           calories: r.calories,
@@ -544,20 +551,58 @@ function App() {
           color: r.calories <= 100 ? 'green' : r.calories <= 300 ? 'yellow' : 'red',
         }));
 
-      // Merge: recipes first, then food suggestions (cap total at 5)
-      const merged = [...recipeSuggestions, ...foodSuggestions].slice(0, 5);
+      // Include RSS recipe feed suggestions
+      let rssSuggestions = [];
+      try {
+        const rssRecipes = await fetchRecipeFeeds();
+        rssSuggestions = rssRecipes
+          .sort(() => Math.random() - 0.5)
+          .slice(0, 3)
+          .map((r) => ({
+            name: `🔗 ${r.title}`,
+            calories: 0,
+            protein: 0,
+            carbs: 0,
+            fat: 0,
+            serving: '',
+            color: 'green',
+            recipeUrl: r.link,
+            recipeSource: r.source,
+            recipeDescription: r.description,
+            recipeImage: r.image,
+          }));
+      } catch { /* ignore */ }
+
+      // Merge: saved recipes → RSS recipes → FDC foods (cap at 6)
+      const merged = [...savedSuggestions, ...rssSuggestions, ...foodSuggestions].slice(0, 6);
       setMealSuggestions(merged);
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };
 
-  const logSuggestion = (meal) => {
-    setMeal(meal.name);
+  const logSuggestion = async (meal) => {
+    const cleanName = meal.name.replace(/^[📖🔗]\s*/, '');
+    setMeal(cleanName);
     setMealCals(String(meal.calories || ''));
     setMealProtein(String(meal.protein || ''));
     setMealCarbs(String(meal.carbs || ''));
     setMealFat(String(meal.fat || ''));
     setMealSuggestions([]);
+
+    // Save RSS recipes to user's recipe collection for future reference
+    if (meal.recipeUrl) {
+      try {
+        await db.addRecipe({
+          name: cleanName,
+          calories: meal.calories || 0,
+          protein: meal.protein || 0,
+          carbs: meal.carbs || 0,
+          fat: meal.fat || 0,
+          ingredients: '',
+          instructions: `View full recipe: ${meal.recipeUrl}\n\nSource: ${meal.recipeSource || ''}\n${meal.recipeDescription || ''}`,
+        });
+      } catch { /* ignore dupes */ }
+    }
   };
 
   // ── Streaks & Badges ──
@@ -1185,10 +1230,10 @@ function App() {
               </div>
             )}
 
-            {/* Daily Meal Plan */}
+            {/* Daily Meal Plan (RSS recipes) */}
             {dailyMeals && (
               <>
-                <div className="section-title">Today&apos;s Meal Plan</div>
+                <div className="section-title">Today&apos;s Meal Ideas</div>
                 {['breakfast', 'lunch', 'dinner', 'snack'].map((mealType) => {
                   const recipe = dailyMeals[mealType];
                   if (!recipe) return null;
@@ -1204,29 +1249,47 @@ function App() {
                         <div className="recipe-info">
                           <div className="recipe-label">{mealType.charAt(0).toUpperCase() + mealType.slice(1)}</div>
                           <div className="recipe-name">{recipe.name}</div>
-                          <div className="recipe-meta">
-                            {recipe.calories} kcal &middot; {recipe.protein}g P &middot; {recipe.carbs}g C &middot; {recipe.fat}g F &middot; ⏱ {recipe.time}
+                          <div className="recipe-meta" style={{ color: 'var(--text-secondary)', fontSize: 12 }}>
+                            via {recipe.source}
                           </div>
                         </div>
                         <div className="recipe-chevron">{isExpanded ? '▲' : '▼'}</div>
                       </div>
                       {isExpanded && (
                         <div className="recipe-detail">
-                          <div className="recipe-section-title">Ingredients</div>
-                          <ul className="recipe-list">
-                            {recipe.ingredients.map((ing, i) => <li key={i}>{ing}</li>)}
-                          </ul>
-                          <div className="recipe-section-title">Steps</div>
-                          <ol className="recipe-list">
-                            {recipe.steps.map((step, i) => <li key={i}>{step}</li>)}
-                          </ol>
-                          <button
-                            className="btn btn-primary btn-full"
-                            style={{ marginTop: 12 }}
-                            onClick={(e) => { e.stopPropagation(); logRecipe(recipe); }}
-                          >
-                            ✅ Log This Meal
-                          </button>
+                          {recipe.image && (
+                            <img src={recipe.image} alt={recipe.name} className="recipe-image" />
+                          )}
+                          {recipe.description && (
+                            <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0' }}>{recipe.description}</p>
+                          )}
+                          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                            <a
+                              className="btn btn-primary"
+                              href={recipe.link}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}
+                            >
+                              📖 View Recipe
+                            </a>
+                            <button
+                              className="btn btn-secondary"
+                              style={{ flex: 1 }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                logSuggestion({
+                                  name: recipe.name,
+                                  calories: 0, protein: 0, carbs: 0, fat: 0,
+                                  recipeUrl: recipe.link,
+                                  recipeSource: recipe.source,
+                                  recipeDescription: recipe.description,
+                                });
+                              }}
+                            >
+                              + Log &amp; Save
+                            </button>
+                          </div>
                         </div>
                       )}
                     </div>
@@ -1334,12 +1397,18 @@ function App() {
                   {mealSuggestions.map((meal, i) => (
                     <div key={i} className="suggestion-item">
                       <div className="suggestion-header">{meal.name}</div>
-                      <div className="suggestion-macros">
-                        {meal.calories} kcal · {meal.protein}g P · {meal.carbs}g C · {meal.fat}g F
-                      </div>
+                      {meal.recipeUrl ? (
+                        <div className="suggestion-macros" style={{ color: 'var(--text-secondary)' }}>
+                          {meal.recipeSource} {meal.recipeDescription ? `· ${meal.recipeDescription.slice(0, 60)}…` : ''}
+                        </div>
+                      ) : (
+                        <div className="suggestion-macros">
+                          {meal.calories} kcal · {meal.protein}g P · {meal.carbs}g C · {meal.fat}g F
+                        </div>
+                      )}
                       <div className="suggestion-actions">
-                        <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ Log</button>
-                        {meal.recipeUrl && <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">🔗 Recipe</a>}
+                        <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ {meal.recipeUrl ? 'Log & Save' : 'Log'}</button>
+                        {meal.recipeUrl && <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">📖 Recipe</a>}
                       </div>
                     </div>
                   ))}

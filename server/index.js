@@ -178,8 +178,9 @@ app.get('/api/debug/db', async (req, res) => {
 
 // Admin: set user tier (requires ADMIN_SECRET)
 app.put('/api/admin/set-tier', async (req, res) => {
-  const secret = req.headers['x-admin-secret'];
-  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+  const secret = (req.headers['x-admin-secret'] || '').trim();
+  const expected = (process.env.ADMIN_SECRET || '').trim();
+  if (!expected || secret !== expected) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   const { email, tier } = req.body;
@@ -199,8 +200,9 @@ app.put('/api/admin/set-tier', async (req, res) => {
 
 // Admin: list all users (requires ADMIN_SECRET)
 app.get('/api/admin/users', async (req, res) => {
-  const secret = req.headers['x-admin-secret'];
-  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+  const secret = (req.headers['x-admin-secret'] || '').trim();
+  const expected = (process.env.ADMIN_SECRET || '').trim();
+  if (!expected || secret !== expected) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   try {

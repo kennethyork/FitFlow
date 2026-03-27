@@ -1,15 +1,69 @@
-// ── Food Reference Database (Dexie/IndexedDB) ──
+// ── Food Reference Database (RxDB/IndexedDB) ──
 // 388K foods from FoodData Central, loaded from static JSON files on first visit.
-// Uses Dexie directly (same IndexedDB engine as RxDB) for bulk-import performance.
-// After loading, an in-memory cache enables instant search.
+// Stored in a dedicated RxDB database. In-memory cache enables instant search.
 
-import { Dexie } from 'dexie';
+import { createRxDatabase } from 'rxdb/plugins/core';
+import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 
-const foodDb = new Dexie('fitflow-foods');
-foodDb.version(1).stores({
-  foods: 'id, category, barcode',
-  meta: 'key',
-});
+const foodSchema = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: 10 },
+    name: { type: 'string' },
+    brand: { type: 'string' },
+    category: { type: 'string' },
+    serving: { type: 'string' },
+    calories: { type: 'number' },
+    protein: { type: 'number' },
+    carbs: { type: 'number' },
+    fat: { type: 'number' },
+    fiber: { type: 'number' },
+    sugar: { type: 'number' },
+    barcode: { type: 'string' },
+  },
+  required: ['id', 'name'],
+};
+
+const metaSchema = {
+  version: 0,
+  primaryKey: 'key',
+  type: 'object',
+  properties: {
+    key: { type: 'string', maxLength: 50 },
+    value: { type: 'string' },
+  },
+  required: ['key'],
+};
+
+function getFoodDB() {
+  if (!globalThis._ffFoodDB) {
+    const _warn = console.warn;
+    console.warn = (...args) => {
+      if (typeof args[0] === 'string' && args[0].includes('https://rxdb.info/premium')) return;
+      _warn.apply(console, args);
+    };
+    globalThis._ffFoodDB = createRxDatabase({
+      name: 'fitflow-foods',
+      storage: getRxStorageDexie(),
+      multiInstance: false,
+      closeDuplicates: true,
+    }).then(async (db) => {
+      console.warn = _warn;
+      await db.addCollections({
+        foods: { schema: foodSchema },
+        meta: { schema: metaSchema },
+      });
+      return db;
+    }).catch((err) => {
+      console.warn = _warn;
+      globalThis._ffFoodDB = null;
+      throw err;
+    });
+  }
+  return globalThis._ffFoodDB;
+}
 
 const BASE = import.meta.env.BASE_URL || '/';
 const FOOD_DB_VERSION = '2026.03.27';
@@ -42,20 +96,24 @@ function assignColor(f) {
 }
 
 export async function loadFoodDatabase(onProgress) {
-  const meta = await foodDb.meta.get('version');
+  const db = await getFoodDB();
+  const metaDoc = await db.meta.findOne('version').exec();
 
-  if (meta?.value === FOOD_DB_VERSION) {
-    // Already imported — load from IndexedDB into memory
+  if (metaDoc?.value === FOOD_DB_VERSION) {
+    // Already imported — load from RxDB into memory
     onProgress?.({ status: 'cache', message: 'Loading food database...' });
-    const all = await foodDb.foods.toArray();
-    _cache = all.map((f) => ({ ...f, _lower: f.name.toLowerCase(), color: assignColor(f) }));
+    const all = await db.foods.find().exec();
+    _cache = all.map((d) => {
+      const f = d.toJSON();
+      return { ...f, _lower: f.name.toLowerCase(), color: assignColor(f) };
+    });
     _ready = true;
     onProgress?.({ status: 'done', loaded: _cache.length, total: _cache.length });
     return;
   }
 
   // First time — download JSON files and bulk-insert
-  await foodDb.foods.clear();
+  await db.foods.find().remove();
   _cache = [];
 
   const resp = await fetch(`${BASE}data/foods/manifest.json`);
@@ -69,18 +127,28 @@ export async function loadFoodDatabase(onProgress) {
     const catResp = await fetch(`${BASE}data/foods/${info.file}`);
     const foods = await catResp.json();
 
-    const records = foods.map((f) => {
-      const id = String(idCounter++);
-      return { id, ...f };
-    });
+    const records = foods.map((f) => ({
+      id: String(idCounter++),
+      name: f.name || '',
+      brand: f.brand || '',
+      category: f.category || category,
+      serving: f.serving || '100g',
+      calories: f.calories || 0,
+      protein: f.protein || 0,
+      carbs: f.carbs || 0,
+      fat: f.fat || 0,
+      fiber: f.fiber || 0,
+      sugar: f.sugar || 0,
+      barcode: f.barcode || '',
+    }));
 
-    // Bulk insert into Dexie (chunked to avoid huge transactions)
+    // Bulk insert (chunked for memory)
     const CHUNK = 5000;
     for (let i = 0; i < records.length; i += CHUNK) {
-      await foodDb.foods.bulkAdd(records.slice(i, i + CHUNK));
+      await db.foods.bulkInsert(records.slice(i, i + CHUNK));
     }
 
-    // Add to in-memory cache as we go (progressive search)
+    // Add to in-memory cache progressively
     for (const r of records) {
       _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
     }
@@ -89,7 +157,7 @@ export async function loadFoodDatabase(onProgress) {
     onProgress?.({ status: 'downloading', loaded, total, category });
   }
 
-  await foodDb.meta.put({ key: 'version', value: FOOD_DB_VERSION });
+  await db.meta.upsert({ key: 'version', value: FOOD_DB_VERSION });
   _ready = true;
   onProgress?.({ status: 'done', loaded, total });
 }
@@ -166,8 +234,9 @@ export function getMealSuggestions(remainingCals, goalType) {
 // ── Clear all food data (for reset) ──
 
 export async function clearFoodDatabase() {
-  await foodDb.foods.clear();
-  await foodDb.meta.clear();
+  const db = await getFoodDB();
+  await db.foods.find().remove();
+  await db.meta.find().remove();
   _cache = [];
   _ready = false;
 }

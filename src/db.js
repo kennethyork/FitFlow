@@ -4,11 +4,9 @@
 import { createRxDatabase, addRxPlugin } from 'rxdb/plugins/core';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
-import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv';
 
 addRxPlugin(RxDBQueryBuilderPlugin);
-addRxPlugin(RxDBMigrationSchemaPlugin);
 
 // ── Schemas ──
 
@@ -39,9 +37,9 @@ const foodLogSchema = {
     protein: { type: 'number' },
     carbs: { type: 'number' },
     fat: { type: 'number' },
-    loggedAt: { type: 'string' },
+    loggedAt: { type: 'string', maxLength: 30 },
   },
-  required: ['id', 'meal'],
+  required: ['id', 'meal', 'loggedAt'],
   indexes: ['loggedAt'],
 };
 
@@ -67,9 +65,9 @@ const weightLogSchema = {
     id: { type: 'string', maxLength: 100 },
     weight: { type: 'number' },
     unit: { type: 'string' },
-    loggedAt: { type: 'string' },
+    loggedAt: { type: 'string', maxLength: 30 },
   },
-  required: ['id'],
+  required: ['id', 'loggedAt'],
   indexes: ['loggedAt'],
 };
 
@@ -105,9 +103,9 @@ const chatMessageSchema = {
     id: { type: 'string', maxLength: 100 },
     role: { type: 'string' },
     text: { type: 'string' },
-    createdAt: { type: 'string' },
+    createdAt: { type: 'string', maxLength: 30 },
   },
-  required: ['id'],
+  required: ['id', 'createdAt'],
   indexes: ['createdAt'],
 };
 
@@ -147,9 +145,7 @@ const recipeSchema = {
   required: ['id', 'name'],
 };
 
-// ── Database singleton ──
-
-let dbPromise = null;
+// ── Database singleton (survives HMR + Strict Mode double-invoke) ──
 
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 9);
@@ -159,27 +155,47 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-async function getDB() {
-  if (dbPromise) return dbPromise;
-  dbPromise = createRxDatabase({
-    name: 'fitflow',
+const collections = {
+  profiles: { schema: userProfileSchema },
+  food_logs: { schema: foodLogSchema },
+  habits: { schema: habitSchema },
+  weight_logs: { schema: weightLogSchema },
+  water_logs: { schema: waterLogSchema },
+  step_logs: { schema: stepLogSchema },
+  chat_messages: { schema: chatMessageSchema },
+  favorite_meals: { schema: favoriteMealSchema },
+  recipes: { schema: recipeSchema },
+};
+
+async function initDB() {
+  // Suppress RxDB promotional console message about premium storage
+  const _warn = console.warn;
+  console.warn = (...args) => {
+    if (typeof args[0] === 'string' && args[0].includes('https://rxdb.info/premium')) return;
+    _warn.apply(console, args);
+  };
+  const db = await createRxDatabase({
+    name: 'fitflow2',
     storage: getRxStorageDexie(),
-    ignoreDuplicate: true,
-  }).then(async (db) => {
-    await db.addCollections({
-      profiles: { schema: userProfileSchema },
-      food_logs: { schema: foodLogSchema },
-      habits: { schema: habitSchema },
-      weight_logs: { schema: weightLogSchema },
-      water_logs: { schema: waterLogSchema },
-      step_logs: { schema: stepLogSchema },
-      chat_messages: { schema: chatMessageSchema },
-      favorite_meals: { schema: favoriteMealSchema },
-      recipes: { schema: recipeSchema },
-    });
-    return db;
+    multiInstance: false,
+    closeDuplicates: true,
   });
-  return dbPromise;
+  await db.addCollections(collections);
+  console.warn = _warn;
+  return db;
+}
+
+// Store the promise on globalThis so it survives Vite HMR module re-evaluation.
+// The key '_ffDB' is checked synchronously before any async work begins,
+// so concurrent calls (React Strict Mode) all get the same promise.
+function getDB() {
+  if (!globalThis._ffDB) {
+    globalThis._ffDB = initDB().catch((err) => {
+      globalThis._ffDB = null;
+      throw err;
+    });
+  }
+  return globalThis._ffDB;
 }
 
 // ── Profile ──

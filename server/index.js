@@ -176,6 +176,42 @@ app.get('/api/debug/db', async (req, res) => {
   }
 });
 
+// Admin: set user tier (requires ADMIN_SECRET)
+app.put('/api/admin/set-tier', async (req, res) => {
+  const secret = req.headers['x-admin-secret'];
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { email, tier } = req.body;
+  if (!email || !['free', 'pro', 'premium', 'unlimited'].includes(tier)) {
+    return res.status(400).json({ error: 'Valid email and tier (free/pro/premium/unlimited) required' });
+  }
+  try {
+    const user = await get('SELECT "id","email","tier" FROM "User" WHERE "email" = ?', email);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    await run('UPDATE "User" SET "tier" = ? WHERE "id" = ?', tier, user.id);
+    res.json({ ok: true, email, oldTier: user.tier, newTier: tier });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to update tier' });
+  }
+});
+
+// Admin: list all users (requires ADMIN_SECRET)
+app.get('/api/admin/users', async (req, res) => {
+  const secret = req.headers['x-admin-secret'];
+  if (!process.env.ADMIN_SECRET || secret !== process.env.ADMIN_SECRET) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  try {
+    const users = await all('SELECT "id","email","name","tier","onboarded","createdAt" FROM "User" ORDER BY "createdAt" DESC');
+    res.json(users);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Failed to list users' });
+  }
+});
+
 app.get('/api/tiers', (req, res) => {
   res.json({
     plans: [

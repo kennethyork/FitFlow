@@ -74,8 +74,17 @@ async function uploadToS3(filePath, fileName, mimetype) {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';
 
-// ── Simple CAPTCHA ──
-const captchaStore = new Map(); // id -> { answer, expires }
+// ── Simple CAPTCHA (stateless — signed token, works across serverless instances) ──
+function createCaptchaToken(answer) {
+  return jwt.sign({ captcha: answer }, JWT_SECRET, { expiresIn: '5m' });
+}
+
+function verifyCaptchaToken(token, answer) {
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    return Number(answer) === decoded.captcha;
+  } catch { return false; }
+}
 
 app.get('/api/auth/captcha', (req, res) => {
   const ops = ['+', '-'];
@@ -89,20 +98,9 @@ app.get('/api/auth/captcha', (req, res) => {
     b = Math.floor(Math.random() * a);
   }
   const answer = op === '+' ? a + b : a - b;
-  const id = crypto.randomBytes(16).toString('hex');
-  captchaStore.set(id, { answer, expires: Date.now() + 5 * 60 * 1000 }); // 5 min
-  // Cleanup expired entries
-  for (const [k, v] of captchaStore) { if (v.expires < Date.now()) captchaStore.delete(k); }
-  res.json({ id, question: `What is ${a} ${op} ${b}?` });
+  const token = createCaptchaToken(answer);
+  res.json({ id: token, question: `What is ${a} ${op} ${b}?` });
 });
-
-function verifyCaptcha(id, answer) {
-  const entry = captchaStore.get(id);
-  if (!entry) return false;
-  captchaStore.delete(id);
-  if (entry.expires < Date.now()) return false;
-  return Number(answer) === entry.answer;
-}
 
 // ── PayPal setup (direct REST API — no SDK needed) ──
 const PAYPAL_BASE = process.env.PAYPAL_MODE === 'live'
@@ -196,7 +194,7 @@ app.post('/api/auth/signup', async (req, res) => {
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
     if (!captchaId || captchaAnswer === undefined) return res.status(400).json({ error: 'Please solve the CAPTCHA' });
-    if (!verifyCaptcha(captchaId, captchaAnswer)) return res.status(400).json({ error: 'Incorrect CAPTCHA answer. Please try again.' });
+    if (!verifyCaptchaToken(captchaId, captchaAnswer)) return res.status(400).json({ error: 'Incorrect CAPTCHA answer. Please try again.' });
 
     const validTiers = ['free', 'pro', 'premium', 'unlimited'];
     const chosenTier = validTiers.includes(tier) ? tier : 'free';

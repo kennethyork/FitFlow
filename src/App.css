@@ -529,10 +529,10 @@ input[type="number"] { -moz-appearance: textfield; }
 .suggestion-actions { display: flex; gap: 8px; }
 .suggestion-item .btn-small {
   padding: 4px 12px; font-size: 12px; border-radius: var(--radius-sm);
-  background: var(--primary); color: #fff; border: none; cursor: pointer; text-decoration: none;
+  background: var(--noom-green); color: #fff; border: none; cursor: pointer; text-decoration: none;
 }
 .suggestion-item .btn-recipe {
-  background: var(--bg-elevated, #f0f0f0); color: var(--primary); border: 1px solid var(--primary);
+  background: var(--bg-card); color: var(--noom-green); border: 1px solid var(--noom-green);
   display: inline-flex; align-items: center; gap: 4px; white-space: nowrap;
 }
 

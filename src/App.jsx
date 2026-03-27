@@ -163,12 +163,15 @@ function App() {
   };
 
   // Refresh auto-generated tasks when the period rolls over (dedup-safe)
+  // Completed tasks are preserved (archived), only uncompleted ones are replaced.
   const refreshAutoTasks = async (profile, existingHabits) => {
     const periods = currentPeriodKeys();
     const stored = JSON.parse(localStorage.getItem('ff_taskPeriods') || '{}');
     const { daily, weekly, monthly } = generateTasks(profile);
     let allHabits = [...existingHabits];
     let changed = false;
+
+    const archiveSource = (src) => `done-${src}`; // e.g. 'done-daily'
 
     const refreshCategory = async (source, newTitles, periodKey, storedKey) => {
       if (storedKey === periodKey) {
@@ -186,10 +189,19 @@ function App() {
         }
         return;
       }
-      // Remove old auto-generated tasks for this category
+      // Period rolled over — archive completed tasks, delete uncompleted
       const old = allHabits.filter(h => h.source === source);
-      for (const h of old) { await db.deleteHabit(h.id); }
-      allHabits = allHabits.filter(h => h.source !== source);
+      for (const h of old) {
+        if (h.completed) {
+          // Keep completed tasks under an archived source so they persist
+          await db.updateHabitSource(h.id, archiveSource(source));
+          const idx = allHabits.findIndex(x => x.id === h.id);
+          if (idx >= 0) allHabits[idx] = { ...allHabits[idx], source: archiveSource(source) };
+        } else {
+          await db.deleteHabit(h.id);
+          allHabits = allHabits.filter(x => x.id !== h.id);
+        }
+      }
       // Insert fresh tasks — skip if title already exists (dedup guard)
       const existingTitles = new Set(allHabits.map(h => h.title));
       for (const title of newTitles) {

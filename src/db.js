@@ -310,6 +310,14 @@ export async function deleteHabit(id) {
   if (doc) await doc.remove();
 }
 
+export async function updateHabitSource(id, newSource) {
+  const db = await getDB();
+  const doc = await db.habits.findOne(id).exec();
+  if (!doc) return null;
+  await doc.incrementalPatch({ source: newSource });
+  return (await db.habits.findOne(id).exec()).toJSON();
+}
+
 // ── Weight Logs ──
 
 export async function getWeightLogs() {

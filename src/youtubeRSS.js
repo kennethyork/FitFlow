@@ -179,17 +179,19 @@ function parseRSSXml(xmlText, channelName) {
 }
 
 async function fetchWithProxy(url) {
-  for (const makeProxy of [null, ...CORS_PROXIES]) {
-    try {
-      const fetchUrl = makeProxy ? makeProxy(url) : url;
-      const res = await fetch(fetchUrl, { signal: AbortSignal.timeout(8000) });
-      if (res.ok) {
-        const text = await res.text();
-        if (text.includes('<feed') || text.includes('<entry')) return text;
-      }
-    } catch { /* try next proxy */ }
+  // Race all proxies simultaneously for speed — skip direct (CORS-blocked from browser)
+  const attempts = CORS_PROXIES.map(async (makeProxy) => {
+    const res = await fetch(makeProxy(url), { signal: AbortSignal.timeout(5000) });
+    if (!res.ok) throw new Error('not ok');
+    const text = await res.text();
+    if (!text.includes('<feed') && !text.includes('<entry')) throw new Error('not xml');
+    return text;
+  });
+  try {
+    return await Promise.any(attempts);
+  } catch {
+    return null;
   }
-  return null;
 }
 
 // Deterministic daily shuffle — same videos per day, different on refresh next day

@@ -48,7 +48,7 @@ function difficultyClass(d) {
 function App() {
   const [user, setUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showLanding, setShowLanding] = useState(true);
+  const [showLanding, setShowLanding] = useState(() => !localStorage.getItem('fitflow_launched'));
 
   const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
@@ -524,7 +524,7 @@ function App() {
     setMealSuggestions([]);
     const remaining = Math.max(0, calGoal - totalCals);
     try {
-      const data = getMealSuggestionsLocal(remaining, user?.goalType || 'lose');
+      const data = getSuggestionsLocal(remaining, user?.goalType || 'lose');
       setMealSuggestions(data);
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
@@ -707,8 +707,8 @@ function App() {
     }
   }, [tab, activeVideoTab]);
 
-  if (!user && showLanding) {
-    return <LandingPage onLaunch={() => setShowLanding(false)} />;
+  if (showLanding) {
+    return <LandingPage onLaunch={() => { localStorage.setItem('fitflow_launched', '1'); setShowLanding(false); }} />;
   }
 
   if (!user) {

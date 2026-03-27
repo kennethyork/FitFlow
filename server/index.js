@@ -190,6 +190,40 @@ app.get('/api/debug/paypal', async (req, res) => {
   }
 });
 
+// Debug: test PayPal order creation
+app.get('/api/debug/paypal-order', async (req, res) => {
+  try {
+    if (!paypalConfigured) return res.json({ ok: false, error: 'PayPal not configured' });
+    const appUrl = (process.env.APP_URL || 'http://localhost:5173').trim();
+    const accessToken = await getPayPalAccessToken();
+    const body = {
+      intent: 'CAPTURE',
+      purchase_units: [{
+        amount: { currency_code: 'USD', value: '4.99' },
+        description: 'FitFlow Pro (Monthly)',
+        custom_id: JSON.stringify({ userId: 'test-debug', tier: 'pro' }),
+      }],
+      application_context: {
+        brand_name: 'FitFlow',
+        return_url: `${appUrl}/?paypal_capture=pending&tier=pro`,
+        cancel_url: `${appUrl}/?cancelled=true`,
+        user_action: 'PAY_NOW',
+      },
+    };
+    const ppRes = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const orderText = await ppRes.text();
+    let order;
+    try { order = JSON.parse(orderText); } catch { order = { rawBody: orderText }; }
+    res.json({ ok: ppRes.ok, status: ppRes.status, appUrl, order });
+  } catch (err) {
+    res.json({ ok: false, error: err.message });
+  }
+});
+
 // Admin: set user tier (requires ADMIN_SECRET)
 app.put('/api/admin/set-tier', async (req, res) => {
   const secret = (req.headers['x-admin-secret'] || '').trim();
@@ -282,16 +316,21 @@ app.post('/api/auth/signup', async (req, res) => {
             },
           }),
         });
-        const order = await ppRes.json();
+        const orderText = await ppRes.text();
+        let order;
+        try { order = JSON.parse(orderText); } catch { order = { rawBody: orderText }; }
+        console.log('PayPal order response status:', ppRes.status, 'body:', JSON.stringify(order).slice(0, 500));
         if (ppRes.ok) {
           const approvalLink = order.links?.find(l => l.rel === 'approve');
           if (approvalLink) {
             return res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: 'free', onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: true }, checkoutUrl: approvalLink.href });
           }
+          console.error('PayPal order ok but no approve link. Links:', JSON.stringify(order.links));
+        } else {
+          console.error('PayPal order creation failed:', ppRes.status, JSON.stringify(order).slice(0, 500));
         }
-        console.error('PayPal order failed during signup, continuing on free tier');
       } catch (ppErr) {
-        console.error('PayPal error during signup, continuing on free tier:', ppErr.message);
+        console.error('PayPal error during signup (exception):', ppErr.message, ppErr.stack);
       }
     }
 

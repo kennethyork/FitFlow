@@ -1,13 +1,15 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import './App.css';
 import useCoachAI from './useCoachAI';
 import OnboardingScreen from './OnboardingScreen';
 import AccountScreen from './AccountScreen';
 import * as db from './db.js';
-import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, lookupBarcode as lookupBarcodeAPI, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
+import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
+import { generateTasks, currentPeriodKeys } from './taskGenerator.js';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
+import { fetchCategoryVideos, searchCachedVideos, VIDEO_CATEGORIES } from './youtubeRSS.js';
 
 const TABS = [
   { id: 'home', icon: '🏠', label: 'Home' },
@@ -134,10 +136,6 @@ function App() {
   const [streakData, setStreakData] = useState(null);
   // Weekly summary
   const [weeklySummary, setWeeklySummary] = useState(null);
-  // Barcode scanner
-  const [barcodeInput, setBarcodeInput] = useState('');
-  const [barcodeScanning, setBarcodeScanning] = useState(false);
-  const [barcodeResult, setBarcodeResult] = useState(null);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -161,6 +159,38 @@ function App() {
   const handleProfileUpdate = async (profileData) => {
     const saved = await db.saveProfile(profileData);
     setUser(saved);
+  };
+
+  // Refresh auto-generated tasks when the period rolls over
+  const refreshAutoTasks = async (profile, existingHabits) => {
+    const periods = currentPeriodKeys();
+    const stored = JSON.parse(localStorage.getItem('ff_taskPeriods') || '{}');
+    const { daily, weekly, monthly } = generateTasks(profile);
+    let allHabits = [...existingHabits];
+    let changed = false;
+
+    const refreshCategory = async (source, newTitles, periodKey, storedKey) => {
+      if (storedKey === periodKey) return; // still current
+      // Remove old auto-generated tasks for this category
+      const old = allHabits.filter(h => h.source === source);
+      for (const h of old) { await db.deleteHabit(h.id); }
+      allHabits = allHabits.filter(h => h.source !== source);
+      // Insert fresh tasks
+      for (const title of newTitles) {
+        const h = await db.addHabit({ title, source });
+        allHabits.push(h);
+      }
+      changed = true;
+    };
+
+    await refreshCategory('daily', daily, periods.daily, stored.daily);
+    await refreshCategory('weekly', weekly, periods.weekly, stored.weekly);
+    await refreshCategory('monthly', monthly, periods.monthly, stored.monthly);
+
+    if (changed) {
+      localStorage.setItem('ff_taskPeriods', JSON.stringify(periods));
+      setHabits(allHabits);
+    }
   };
 
   // Load all data from local RxDB
@@ -202,6 +232,9 @@ function App() {
         setStreakData(streaksData);
         setWeeklySummary(weeklyData);
 
+        // Generate/refresh daily, weekly, monthly tasks
+        refreshAutoTasks(profile, habitsData).catch(console.error);
+
         // Load food reference database in background
         loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
       } catch (err) {
@@ -213,22 +246,27 @@ function App() {
     })();
   }, []);
 
-  const totalCals = logs.reduce((s, l) => s + (l.calories || 0), 0);
-  const totalProtein = logs.reduce((s, l) => s + (l.protein || 0), 0);
-  const totalCarbs = logs.reduce((s, l) => s + (l.carbs || 0), 0);
-  const totalFat = logs.reduce((s, l) => s + (l.fat || 0), 0);
-  const habitsCompleted = habits.filter((h) => h.completed).length;
+  const totalCals = useMemo(() => logs.reduce((s, l) => s + (l.calories || 0), 0), [logs]);
+  const totalProtein = useMemo(() => logs.reduce((s, l) => s + (l.protein || 0), 0), [logs]);
+  const totalCarbs = useMemo(() => logs.reduce((s, l) => s + (l.carbs || 0), 0), [logs]);
+  const totalFat = useMemo(() => logs.reduce((s, l) => s + (l.fat || 0), 0), [logs]);
+  const habitsCompleted = useMemo(() => habits.filter((h) => h.completed).length, [habits]);
   const calGoal = user?.calorieGoal || 1800;
 
-  const searchFoods = async (query) => {
+  // Debounced food search — waits 200ms after last keystroke
+  const searchTimerRef = useRef(null);
+  const searchFoods = useCallback((query) => {
     setFoodSearchQuery(query);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); return; }
-    try {
-      const results = await searchFoodsAPI(query.trim());
-      setFoodSearchResults(results || []);
-      setShowFoodSearch(true);
-    } catch { setFoodSearchResults([]); }
-  };
+    searchTimerRef.current = setTimeout(async () => {
+      try {
+        const results = await searchFoodsAPI(query.trim());
+        setFoodSearchResults(results || []);
+        setShowFoodSearch(true);
+      } catch { setFoodSearchResults([]); }
+    }, 200);
+  }, []);
 
   const selectFood = (food) => {
     setMeal(food.name);
@@ -480,31 +518,6 @@ function App() {
     } catch { /* ignore */ }
   };
 
-  // ── Barcode Lookup ──
-  const lookupBarcode = async () => {
-    if (!barcodeInput.trim()) return;
-    setBarcodeScanning(true);
-    setBarcodeResult(null);
-    try {
-      const result = await lookupBarcodeAPI(barcodeInput.trim());
-      setBarcodeResult(result || { error: 'Product not found. Check the barcode and try again.' });
-    } catch {
-      setBarcodeResult({ error: 'Unable to look up barcode. Please try again.' });
-    }
-    setBarcodeScanning(false);
-  };
-
-  const logBarcodeResult = () => {
-    if (!barcodeResult || barcodeResult.error) return;
-    setMeal(barcodeResult.name);
-    setMealCals(String(barcodeResult.calories || ''));
-    setMealProtein(String(barcodeResult.protein || ''));
-    setMealCarbs(String(barcodeResult.carbs || ''));
-    setMealFat(String(barcodeResult.fat || ''));
-    setBarcodeResult(null);
-    setBarcodeInput('');
-  };
-
   const sendCoachQuery = async () => {
     if (!coachQuery.trim()) return;
     const q = coachQuery;
@@ -515,6 +528,15 @@ function App() {
       const history = [...chatHistory, { role: 'user', text: q }];
       let streamed = '';
       const answer = await aiChat(history, {
+        userData: {
+          totalCals,
+          calGoal,
+          totalProtein,
+          habitsCompleted,
+          habitsTotal: habits.length,
+          goalType: user?.goalType,
+          name: user?.name,
+        },
         onToken: (token) => {
           streamed += token;
           // Update last coach message in-place for live streaming
@@ -578,9 +600,9 @@ function App() {
         taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
         if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
         try {
-          const newTask = await db.addHabit(taskTitle);
+          const newTask = await db.addHabit({ title: taskTitle, source: 'coach' });
           setHabits((prev) => [...prev, newTask]);
-          const taskMsg = `✅ I've added "${taskTitle}" to your daily tasks!`;
+          const taskMsg = `✅ I've added "${taskTitle}" to your tasks!`;
           setChatHistory((prev) => [...prev, { role: 'coach', text: taskMsg }]);
           db.addChatMessages([{ role: 'coach', text: taskMsg }]).catch(() => {});
         } catch { /* ignore assign error */ }
@@ -613,66 +635,32 @@ function App() {
     setHabits((prev) => prev.filter((h) => h.id !== id));
   };
 
-  // ── Workouts (curated, no server) ──
-  const CURATED_WORKOUTS = [
-    { id: 'w1', title: 'Full Body HIIT – 20 min', videoId: 'ml6cT4AZdqI', duration: '20 min', level: 'Intermediate' },
-    { id: 'w2', title: 'Beginner Yoga Flow', videoId: 'v7AYKMP6rOE', duration: '15 min', level: 'Beginner' },
-    { id: 'w3', title: 'Core Strength Workout', videoId: 'AnYl6Nk9QlY', duration: '10 min', level: 'All Levels' },
-    { id: 'w4', title: 'Upper Body Dumbbell Workout', videoId: '3p8EBPVZ2Iw', duration: '25 min', level: 'Intermediate' },
-    { id: 'w5', title: 'Lower Body Burn', videoId: 'UBnT9hT2JjM', duration: '20 min', level: 'Intermediate' },
-    { id: 'w6', title: '5 Minute Stretch Routine', videoId: 'sTANio_2E0Q', duration: '5 min', level: 'Beginner' },
-    { id: 'w7', title: 'Fat Burning Cardio – No Equipment', videoId: 'VHyGqsPOUHs', duration: '30 min', level: 'All Levels' },
-    { id: 'w8', title: 'Pilates for Beginners', videoId: 'K56Z12XNQ5c', duration: '20 min', level: 'Beginner' },
-  ];
-
+  // ── Workouts search (uses RSS videos) ──
   const searchWorkouts = async () => {
     if (!workoutSearchTerm.trim()) return;
-    const q = workoutSearchTerm.toLowerCase();
-    setWorkoutResults(CURATED_WORKOUTS.filter(w => w.title.toLowerCase().includes(q) || w.level.toLowerCase().includes(q)));
+    const results = searchCachedVideos(workoutSearchTerm);
+    setWorkoutResults(results);
   };
 
-  // ── Video browse helpers (curated, no server) ──
-  const DEFAULT_VIDEO_TABS = [
-    { id: 'hiit', label: 'HIIT' },
-    { id: 'yoga', label: 'Yoga' },
-    { id: 'strength', label: 'Strength' },
-    { id: 'cardio', label: 'Cardio' },
-    { id: 'stretch', label: 'Stretching' },
-  ];
-
-  const CURATED_VIDEOS = {
-    hiit: [
-      { id: 'v1', title: '20 Min Full Body HIIT', videoId: 'ml6cT4AZdqI', channel: 'MadFit' },
-      { id: 'v2', title: '15 Min HIIT No Equipment', videoId: 'VHyGqsPOUHs', channel: 'JEFIT' },
-    ],
-    yoga: [
-      { id: 'v3', title: 'Yoga For Beginners', videoId: 'v7AYKMP6rOE', channel: 'Yoga With Adriene' },
-      { id: 'v4', title: 'Morning Yoga Flow', videoId: 'sTANio_2E0Q', channel: 'Yoga With Adriene' },
-    ],
-    strength: [
-      { id: 'v5', title: 'Full Body Strength', videoId: '3p8EBPVZ2Iw', channel: 'Sydney Cummings' },
-      { id: 'v6', title: 'Dumbbell Workout', videoId: 'UBnT9hT2JjM', channel: 'Heather Robertson' },
-    ],
-    cardio: [
-      { id: 'v7', title: 'Fat Burning Cardio', videoId: 'VHyGqsPOUHs', channel: 'JEFIT' },
-    ],
-    stretch: [
-      { id: 'v8', title: '5 Minute Cool Down Stretch', videoId: 'sTANio_2E0Q', channel: 'MadFit' },
-    ],
-  };
-
+  // ── Video browse helpers (YouTube RSS) ──
   const loadVideoTabs = () => {
-    setVideoTabs(DEFAULT_VIDEO_TABS);
+    setVideoTabs(VIDEO_CATEGORIES);
   };
 
-  const loadBrowseVideos = (tabId, query) => {
+  const loadBrowseVideos = async (tabId, query) => {
     setBrowseLoading(true);
-    if (query) {
-      const q = query.toLowerCase();
-      const all = Object.values(CURATED_VIDEOS).flat();
-      setBrowseVideos(all.filter(v => v.title.toLowerCase().includes(q)));
-    } else {
-      setBrowseVideos(CURATED_VIDEOS[tabId || activeVideoTab] || []);
+    try {
+      if (query) {
+        // First ensure at least one category is fetched so cache has data
+        await fetchCategoryVideos(activeVideoTab);
+        setBrowseVideos(searchCachedVideos(query));
+      } else {
+        const videos = await fetchCategoryVideos(tabId || activeVideoTab);
+        setBrowseVideos(videos);
+      }
+    } catch (err) {
+      console.warn('Failed to load videos:', err);
+      setBrowseVideos([]);
     }
     setBrowseLoading(false);
   };
@@ -816,39 +804,28 @@ function App() {
             {/* Daily Tasks */}
             <div className="card">
               <div className="card-title">📋 Daily Tasks</div>
-              {habits.filter(h => h.source === 'daily').slice(0, 3).map((habit) => (
+              {habits.filter(h => h.source === 'daily').map((habit) => (
                 <div className="habit-item" key={habit.id}>
-                  <div
-                    className={`habit-check ${habit.completed ? 'done' : ''}`}
-                    onClick={() => toggleHabit(habit.id)}
-                  >
+                  <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                     {habit.completed ? '✓' : ''}
                   </div>
-                  <span
-                    className={`habit-text ${habit.completed ? 'done' : ''}`}
-                  >
-                    {habit.title}
-                  </span>
+                  <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                 </div>
               ))}
+              {habits.filter(h => h.source === 'daily').length === 0 && (
+                <div style={{ color: 'var(--text-muted)', fontSize: 13, padding: '4px 0' }}>Loading tasks...</div>
+              )}
             </div>
 
             {/* Weekly Goals */}
             <div className="card">
               <div className="card-title">📅 Weekly Goals</div>
-              {habits.filter(h => h.source === 'weekly').slice(0, 2).map((habit) => (
+              {habits.filter(h => h.source === 'weekly').map((habit) => (
                 <div className="habit-item" key={habit.id}>
-                  <div
-                    className={`habit-check ${habit.completed ? 'done' : ''}`}
-                    onClick={() => toggleHabit(habit.id)}
-                  >
+                  <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                     {habit.completed ? '✓' : ''}
                   </div>
-                  <span
-                    className={`habit-text ${habit.completed ? 'done' : ''}`}
-                  >
-                    {habit.title}
-                  </span>
+                  <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                 </div>
               ))}
             </div>
@@ -856,27 +833,16 @@ function App() {
             {/* Monthly Challenges */}
             <div className="card">
               <div className="card-title">🏆 Monthly Challenges</div>
-              {habits.filter(h => h.source === 'monthly').slice(0, 2).map((habit) => (
+              {habits.filter(h => h.source === 'monthly').map((habit) => (
                 <div className="habit-item" key={habit.id}>
-                  <div
-                    className={`habit-check ${habit.completed ? 'done' : ''}`}
-                    onClick={() => toggleHabit(habit.id)}
-                  >
+                  <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                     {habit.completed ? '✓' : ''}
                   </div>
-                  <span
-                    className={`habit-text ${habit.completed ? 'done' : ''}`}
-                  >
-                    {habit.title}
-                  </span>
+                  <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                 </div>
               ))}
-              {habits.length > 5 && (
-                <button
-                  className="btn btn-secondary btn-full"
-                  style={{ marginTop: 8 }}
-                  onClick={() => setTab('habits')}
-                >
+              {habits.length > 7 && (
+                <button className="btn btn-secondary btn-full" style={{ marginTop: 8 }} onClick={() => setTab('habits')}>
                   View all tasks →
                 </button>
               )}
@@ -1209,39 +1175,6 @@ function App() {
               </>
             )}
 
-            {/* ── Barcode Scanner ── */}
-            <div className="card barcode-card">
-              <div className="card-title">📷 Barcode Scanner</div>
-              <div className="barcode-input-row">
-                <input
-                  className="input"
-                  value={barcodeInput}
-                  onChange={(e) => setBarcodeInput(e.target.value)}
-                  placeholder="Enter barcode number..."
-                  onKeyDown={(e) => e.key === 'Enter' && lookupBarcode()}
-                />
-                <button className="btn btn-primary btn-sm" onClick={lookupBarcode} disabled={barcodeScanning}>
-                  {barcodeScanning ? '...' : 'Look Up'}
-                </button>
-              </div>
-              {barcodeResult && !barcodeResult.error && (
-                <div className="barcode-result">
-                  <div className="barcode-result-name">{barcodeResult.name}</div>
-                  {barcodeResult.brand && <div className="barcode-result-brand">{barcodeResult.brand}</div>}
-                  <div className="barcode-result-macros">
-                    <span>{barcodeResult.calories} kcal</span>
-                    <span>{barcodeResult.protein}g P</span>
-                    <span>{barcodeResult.carbs}g C</span>
-                    <span>{barcodeResult.fat}g F</span>
-                  </div>
-                  <button className="btn btn-primary btn-sm" onClick={logBarcodeResult}>+ Log This</button>
-                </div>
-              )}
-              {barcodeResult?.error && (
-                <div className="barcode-error">{barcodeResult.error}</div>
-              )}
-            </div>
-
             <div className="section-title">Log a Meal</div>
 
             <div className="card">
@@ -1468,7 +1401,7 @@ function App() {
               <div className="card empty-state">
                 <div className="empty-state-icon">✅</div>
                 <div className="empty-state-title">No habits yet</div>
-                <div className="empty-state-text">Add your first habit below to start building healthy routines!</div>
+                <div className="empty-state-text">Tasks will generate automatically based on your goals!</div>
               </div>
             )}
 
@@ -1478,15 +1411,10 @@ function App() {
                 <div className="card-title">📋 Daily Tasks</div>
                 {habits.filter(h => h.source === 'daily').map((habit) => (
                   <div className="habit-item" key={habit.id}>
-                    <div
-                      className={`habit-check ${habit.completed ? 'done' : ''}`}
-                      onClick={() => toggleHabit(habit.id)}
-                    >
+                    <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                       {habit.completed ? '✓' : ''}
                     </div>
-                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>
-                      {habit.title}
-                    </span>
+                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                   </div>
                 ))}
               </div>
@@ -1498,15 +1426,10 @@ function App() {
                 <div className="card-title">📅 Weekly Goals</div>
                 {habits.filter(h => h.source === 'weekly').map((habit) => (
                   <div className="habit-item" key={habit.id}>
-                    <div
-                      className={`habit-check ${habit.completed ? 'done' : ''}`}
-                      onClick={() => toggleHabit(habit.id)}
-                    >
+                    <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                       {habit.completed ? '✓' : ''}
                     </div>
-                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>
-                      {habit.title}
-                    </span>
+                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                   </div>
                 ))}
               </div>
@@ -1518,38 +1441,26 @@ function App() {
                 <div className="card-title">🏆 Monthly Challenges</div>
                 {habits.filter(h => h.source === 'monthly').map((habit) => (
                   <div className="habit-item" key={habit.id}>
-                    <div
-                      className={`habit-check ${habit.completed ? 'done' : ''}`}
-                      onClick={() => toggleHabit(habit.id)}
-                    >
+                    <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                       {habit.completed ? '✓' : ''}
                     </div>
-                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>
-                      {habit.title}
-                    </span>
+                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Coach/Custom tasks */}
+            {/* Coach & Custom tasks */}
             {habits.filter(h => h.source === 'coach' || h.source === 'custom').length > 0 && (
               <div className="card" style={{ marginBottom: 16 }}>
                 <div className="card-title">✨ Your Tasks</div>
                 {habits.filter(h => h.source === 'coach' || h.source === 'custom').map((habit) => (
                   <div className="habit-item" key={habit.id}>
-                    <div
-                      className={`habit-check ${habit.completed ? 'done' : ''}`}
-                      onClick={() => toggleHabit(habit.id)}
-                    >
+                    <div className={`habit-check ${habit.completed ? 'done' : ''}`} onClick={() => toggleHabit(habit.id)}>
                       {habit.completed ? '✓' : ''}
                     </div>
-                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>
-                      {habit.title}
-                    </span>
-                    <span className={`habit-source ${habit.source}`}>
-                      {habit.source === 'coach' ? '🤖 Coach' : ''}
-                    </span>
+                    <span className={`habit-text ${habit.completed ? 'done' : ''}`}>{habit.title}</span>
+                    {habit.source === 'coach' && <span className="habit-source coach">🤖 Coach</span>}
                     <button className="habit-del" onClick={() => deleteHabit(habit.id)}>✕</button>
                   </div>
                 ))}
@@ -1561,7 +1472,7 @@ function App() {
                 className="input"
                 value={newHabit}
                 onChange={(e) => setNewHabit(e.target.value)}
-                placeholder="Add a new habit..."
+                placeholder="Add a custom task..."
               />
               <button className="btn btn-primary" onClick={addHabit}>
                 +

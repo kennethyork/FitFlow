@@ -134,10 +134,48 @@ const GENERAL_RESPONSES = [
   "My top advice: don't aim for perfection — aim for consistency. A decent plan followed every day beats a perfect plan followed sporadically. Log your meals, move your body, drink your water, and get your sleep. Do that for 30 days and you'll be amazed at the difference.",
 ];
 
+// ── Personalized context injector ──
+// Weaves real user data into the response when relevant.
+function personalizeResponse(response, userData) {
+  if (!userData) return response;
+  const { totalCals, calGoal, totalProtein, habitsCompleted, habitsTotal, goalType, name } = userData;
+  const lines = [];
+
+  // Calorie check — if user has logged food today
+  if (typeof totalCals === 'number' && calGoal > 0) {
+    const remaining = calGoal - totalCals;
+    const pct = Math.round((totalCals / calGoal) * 100);
+    if (remaining > 400) {
+      lines.push(`\n\n📊 You've logged ${totalCals} of your ${calGoal} cal goal today (${pct}%). You still have ${remaining} cal left — make sure to fuel up!`);
+    } else if (remaining > 0) {
+      lines.push(`\n\n📊 Nice — you're at ${totalCals} of ${calGoal} cal today (${pct}%). Just ${remaining} cal to go. Finish strong!`);
+    } else if (remaining <= 0 && totalCals > 0) {
+      lines.push(`\n\n📊 You've hit your ${calGoal} cal goal today (${totalCals} cal logged). ${goalType === 'lose' ? 'Try to stay close to your target.' : 'Great job fueling up!'}`);
+    }
+  }
+
+  // Protein nudge
+  if (typeof totalProtein === 'number' && totalProtein > 0 && totalProtein < 50) {
+    lines.push(`💪 Your protein is at ${totalProtein}g so far — try to get more in your next meal.`);
+  }
+
+  // Habits progress
+  if (typeof habitsCompleted === 'number' && habitsTotal > 0) {
+    if (habitsCompleted === habitsTotal) {
+      lines.push(`✅ You've completed all ${habitsTotal} tasks today — incredible work!`);
+    } else if (habitsCompleted > 0) {
+      lines.push(`✅ ${habitsCompleted}/${habitsTotal} tasks done today. Keep going!`);
+    }
+  }
+
+  // Only add 1–2 context lines to avoid being too verbose
+  return response + lines.slice(0, 2).join('\n');
+}
+
 // ── Smart response engine ──
 // Uses a 50/50 mix of static (curated) and template (generated) responses.
 // Templates are interpolated with random pool values each time → millions of combos.
-function getSmartResponse(userText, messages) {
+function getSmartResponse(userText, messages, userData) {
   const ctx = analyzeConversation(messages);
   const intents = detectIntents(userText);
 
@@ -205,6 +243,9 @@ function getSmartResponse(userText, messages) {
     if (enc) response += enc;
   }
 
+  // Inject personalized data context
+  response = personalizeResponse(response, userData);
+
   return response;
 }
 
@@ -231,9 +272,9 @@ export default function useCoachAI(userId) {
   const [coachName] = useState(() => pickCoachName(userId));
 
   const chat = useCallback(
-    async (messages, { onToken } = {}) => {
+    async (messages, { onToken, userData } = {}) => {
       const lastUser = [...messages].reverse().find((m) => m.role === 'user');
-      const response = getSmartResponse(lastUser?.text || '', messages);
+      const response = getSmartResponse(lastUser?.text || '', messages, userData);
 
       if (onToken) {
         await streamWords(response, onToken);

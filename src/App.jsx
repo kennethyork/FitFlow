@@ -524,8 +524,29 @@ function App() {
     setMealSuggestions([]);
     const remaining = Math.max(0, calGoal - totalCals);
     try {
-      const data = getSuggestionsLocal(remaining, user?.goalType || 'lose');
-      setMealSuggestions(data);
+      // Get food suggestions from FDC database
+      const foodSuggestions = getSuggestionsLocal(remaining, user?.goalType || 'lose');
+
+      // Also include user's saved recipes that fit remaining calories
+      const recipes = await db.getRecipes();
+      const maxCal = remaining > 0 ? remaining : 500;
+      const recipeSuggestions = recipes
+        .filter((r) => r.calories > 0 && r.calories <= maxCal)
+        .sort(() => Math.random() - 0.5)
+        .slice(0, 3)
+        .map((r) => ({
+          name: `📖 ${r.name}`,
+          calories: r.calories,
+          protein: r.protein || 0,
+          carbs: r.carbs || 0,
+          fat: r.fat || 0,
+          serving: r.servings ? `${r.servings} serving(s)` : '1 serving',
+          color: r.calories <= 100 ? 'green' : r.calories <= 300 ? 'yellow' : 'red',
+        }));
+
+      // Merge: recipes first, then food suggestions (cap total at 5)
+      const merged = [...recipeSuggestions, ...foodSuggestions].slice(0, 5);
+      setMealSuggestions(merged);
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };

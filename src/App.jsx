@@ -97,6 +97,7 @@ function App() {
   const [workoutSearchTerm, setWorkoutSearchTerm] = useState('');
   const [workoutResults, setWorkoutResults] = useState([]);
 
+  const initRef = useRef(false);
   const [videoTabs, setVideoTabs] = useState([]);
   const [activeVideoTab, setActiveVideoTab] = useState('chair');
   const [browseVideos, setBrowseVideos] = useState([]);
@@ -161,7 +162,7 @@ function App() {
     setUser(saved);
   };
 
-  // Refresh auto-generated tasks when the period rolls over
+  // Refresh auto-generated tasks when the period rolls over (dedup-safe)
   const refreshAutoTasks = async (profile, existingHabits) => {
     const periods = currentPeriodKeys();
     const stored = JSON.parse(localStorage.getItem('ff_taskPeriods') || '{}');
@@ -170,15 +171,32 @@ function App() {
     let changed = false;
 
     const refreshCategory = async (source, newTitles, periodKey, storedKey) => {
-      if (storedKey === periodKey) return; // still current
+      if (storedKey === periodKey) {
+        // Period matches — just deduplicate any existing duplicates in DB
+        const existing = allHabits.filter(h => h.source === source);
+        const seen = new Set();
+        for (const h of existing) {
+          if (seen.has(h.title)) {
+            await db.deleteHabit(h.id);
+            allHabits = allHabits.filter(x => x.id !== h.id);
+            changed = true;
+          } else {
+            seen.add(h.title);
+          }
+        }
+        return;
+      }
       // Remove old auto-generated tasks for this category
       const old = allHabits.filter(h => h.source === source);
       for (const h of old) { await db.deleteHabit(h.id); }
       allHabits = allHabits.filter(h => h.source !== source);
-      // Insert fresh tasks
+      // Insert fresh tasks — skip if title already exists (dedup guard)
+      const existingTitles = new Set(allHabits.map(h => h.title));
       for (const title of newTitles) {
+        if (existingTitles.has(title)) continue;
         const h = await db.addHabit({ title, source });
         allHabits.push(h);
+        existingTitles.add(title);
       }
       changed = true;
     };
@@ -188,13 +206,16 @@ function App() {
     await refreshCategory('monthly', monthly, periods.monthly, stored.monthly);
 
     if (changed) {
-      localStorage.setItem('ff_taskPeriods', JSON.stringify(periods));
       setHabits(allHabits);
     }
+    // Always persist period keys so next load skips refresh
+    localStorage.setItem('ff_taskPeriods', JSON.stringify(periods));
   };
 
-  // Load all data from local RxDB
+  // Load all data from local RxDB (guarded against StrictMode double-mount)
   useEffect(() => {
+    if (initRef.current) return;
+    initRef.current = true;
     (async () => {
       try {
         setLoading(true);

@@ -596,7 +596,6 @@ function App() {
     setMealProtein(String(meal.protein || ''));
     setMealCarbs(String(meal.carbs || ''));
     setMealFat(String(meal.fat || ''));
-    setMealSuggestions([]);
 
     // Save RSS recipes to user's recipe collection for future reference
     if (meal.recipeUrl) {
@@ -612,6 +611,23 @@ function App() {
         });
       } catch { /* ignore dupes */ }
     }
+  };
+
+  const saveSuggestion = async (meal) => {
+    const cleanName = meal.name.replace(/^[📖🔗]\s*/, '');
+    try {
+      await db.addRecipe({
+        name: cleanName,
+        calories: meal.calories || 0,
+        protein: meal.protein || 0,
+        carbs: meal.carbs || 0,
+        fat: meal.fat || 0,
+        ingredients: '',
+        instructions: meal.recipeUrl
+          ? `View full recipe: ${meal.recipeUrl}\n\nSource: ${meal.recipeSource || ''}\n${meal.recipeDescription || ''}`
+          : '',
+      });
+    } catch { /* ignore dupes */ }
   };
 
   // ── Streaks & Badges ──
@@ -1394,13 +1410,20 @@ function App() {
               <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '4px 0 10px' }}>
                 Get personalized meals based on your remaining {Math.max(0, calGoal - totalCals)} kcal
               </p>
-              <button
-                className="btn btn-secondary"
-                onClick={getMealSuggestions}
-                disabled={suggestionsLoading}
-              >
-                {suggestionsLoading ? '⏳ Generating...' : '🍽️ Suggest Meals'}
-              </button>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button
+                  className="btn btn-secondary"
+                  onClick={getMealSuggestions}
+                  disabled={suggestionsLoading}
+                >
+                  {suggestionsLoading ? '⏳ Generating...' : mealSuggestions.length > 0 ? '🔄 Next Suggestions' : '🍽️ Suggest Meals'}
+                </button>
+                {mealSuggestions.length > 0 && (
+                  <button className="btn btn-secondary" onClick={() => { setMealSuggestions([]); try { sessionStorage.removeItem('ff_suggestions'); } catch {} }}>
+                    ✕ Clear
+                  </button>
+                )}
+              </div>
               {mealSuggestions.length > 0 && (
                 <div className="suggestion-list">
                   {mealSuggestions.map((meal, i) => (
@@ -1416,7 +1439,8 @@ function App() {
                         </div>
                       )}
                       <div className="suggestion-actions">
-                        <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ {meal.recipeUrl ? 'Log & Save' : 'Log'}</button>
+                        <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ Log</button>
+                        <button className="btn btn-small" onClick={() => saveSuggestion(meal)}>💾 Save</button>
                         {meal.recipeUrl && <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">📖 Recipe</a>}
                       </div>
                     </div>

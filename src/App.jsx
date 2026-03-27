@@ -3,6 +3,7 @@ import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContai
 import './App.css';
 import useCoachAI from './useCoachAI';
 import OnboardingScreen from './OnboardingScreen';
+import LandingPage from './LandingPage';
 import AccountScreen from './AccountScreen';
 import * as db from './db.js';
 import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
@@ -47,6 +48,7 @@ function difficultyClass(d) {
 function App() {
   const [user, setUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showLanding, setShowLanding] = useState(true);
 
   const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
@@ -704,6 +706,10 @@ function App() {
       loadBrowseVideos(activeVideoTab);
     }
   }, [tab, activeVideoTab]);
+
+  if (!user && showLanding) {
+    return <LandingPage onLaunch={() => setShowLanding(false)} />;
+  }
 
   if (!user) {
     return <OnboardingScreen onComplete={handleOnboardComplete} />;

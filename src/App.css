@@ -1528,3 +1528,156 @@ input[type="number"] { -moz-appearance: textfield; }
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* ========== Landing / Marketing Page ========== */
+.landing {
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text-primary);
+  overflow-x: hidden;
+}
+
+.landing-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 24px;
+  max-width: 960px;
+  margin: 0 auto;
+}
+.landing-nav-brand {
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+.landing-nav-link {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.landing-hero {
+  text-align: center;
+  padding: 60px 24px 48px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.landing-title {
+  font-size: clamp(36px, 8vw, 56px);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -1.5px;
+  margin-bottom: 20px;
+}
+.landing-accent {
+  color: var(--noom-green);
+}
+.landing-subtitle {
+  font-size: 17px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  max-width: 500px;
+  margin: 0 auto 32px;
+}
+.landing-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 40px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--noom-green);
+  border: none;
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+  box-shadow: 0 4px 16px rgba(0, 168, 107, 0.35);
+}
+.landing-cta:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 24px rgba(0, 168, 107, 0.45);
+}
+.landing-cta:active {
+  transform: translateY(0);
+}
+.landing-note {
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Feature grid */
+.landing-features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 20px;
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 48px;
+}
+.landing-feature-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 24px;
+  transition: box-shadow 0.15s;
+}
+.landing-feature-card:hover {
+  box-shadow: var(--shadow-md);
+}
+.landing-feature-icon {
+  font-size: 28px;
+  display: block;
+  margin-bottom: 10px;
+}
+.landing-feature-card h3 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.landing-feature-card p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+/* Tech pills */
+.landing-tech {
+  text-align: center;
+  padding: 0 24px 48px;
+}
+.landing-tech h2 {
+  font-size: 14px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+}
+.landing-tech-pills {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+.landing-pill {
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  background: var(--border-light);
+  color: var(--text-secondary);
+}
+
+/* Footer */
+.landing-footer {
+  text-align: center;
+  padding: 24px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.landing-footer a {
+  color: var(--noom-green);
+}

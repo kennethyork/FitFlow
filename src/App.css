@@ -719,6 +719,39 @@ input[type="number"] { -moz-appearance: textfield; }
   margin-bottom: 12px;
   text-align: center;
 }
+.captcha-box {
+  background: rgba(255,255,255,0.06);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: var(--radius-sm, 10px);
+  padding: 14px;
+  margin-bottom: 12px;
+  text-align: center;
+}
+.captcha-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #888;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 6px;
+  display: block;
+}
+.captcha-question {
+  font-size: 22px;
+  font-weight: 700;
+  color: #00a86b;
+  margin: 8px 0 10px;
+}
+.captcha-refresh {
+  background: none;
+  border: none;
+  color: #888;
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 4px;
+  padding: 4px 8px;
+}
+.captcha-refresh:hover { color: #00a86b; }
 .auth-success {
   background: rgba(0, 168, 107, 0.12);
   color: #00a86b;

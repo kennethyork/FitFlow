@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { apiUrl } from './api';
 
 export default function AuthScreen({ onAuth }) {
-  const [mode, setMode] = useState('login'); // login | signup | verify-sent | verifying
+  const [mode, setMode] = useState('login'); // login | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
@@ -10,35 +10,22 @@ export default function AuthScreen({ onAuth }) {
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
+  const [captcha, setCaptcha] = useState(null); // { id, question }
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
 
-  // Check for ?verify= token in URL on mount
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const verifyToken = params.get('verify');
-    if (verifyToken) {
-      setMode('verifying');
-      verifyEmail(verifyToken);
-    }
-  }, []);
-
-  const verifyEmail = async (token) => {
+  // Fetch CAPTCHA when switching to signup
+  const loadCaptcha = async () => {
     try {
-      const res = await fetch(apiUrl(`/api/auth/verify?token=${encodeURIComponent(token)}`));
+      const res = await fetch(apiUrl('/api/auth/captcha'));
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Verification failed');
-        setMode('login');
-      } else {
-        setSuccess('Email verified! You can now log in.');
-        setMode('login');
-      }
-      // Clean up URL
-      window.history.replaceState({}, '', window.location.pathname);
-    } catch {
-      setError('Unable to verify email');
-      setMode('login');
-    }
+      setCaptcha(data);
+      setCaptchaAnswer('');
+    } catch { /* ignore */ }
   };
+
+  useEffect(() => {
+    if (mode === 'signup') loadCaptcha();
+  }, [mode]);
 
   const plans = [
     { id: 'free', name: 'Free', price: '$0', period: '', desc: '5 meals/day · 3 habits · 3 coach chats' },
@@ -54,7 +41,9 @@ export default function AuthScreen({ onAuth }) {
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? apiUrl('/api/auth/login') : apiUrl('/api/auth/signup');
-      const body = mode === 'login' ? { email, password } : { email, password, name, tier: selectedPlan };
+      const body = mode === 'login'
+        ? { email, password }
+        : { email, password, name, tier: selectedPlan, captchaId: captcha?.id, captchaAnswer };
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -63,10 +52,7 @@ export default function AuthScreen({ onAuth }) {
       const data = await res.json();
       if (!res.ok) {
         setError(data.error || 'Something went wrong');
-        return;
-      }
-      if (data.needsVerification) {
-        setMode('verify-sent');
+        if (mode === 'signup') loadCaptcha(); // refresh CAPTCHA on error
         return;
       }
       onAuth(data.token, data.user, mode === 'signup');
@@ -76,36 +62,6 @@ export default function AuthScreen({ onAuth }) {
       setLoading(false);
     }
   };
-
-  if (mode === 'verifying') {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <div className="auth-logo">🌿</div>
-          <h1 className="auth-title">FitFlow</h1>
-          <p className="auth-subtitle">Verifying your email...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (mode === 'verify-sent') {
-    return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <div className="auth-logo">📧</div>
-          <h1 className="auth-title">Check Your Email</h1>
-          <p className="auth-subtitle">
-            We sent a verification link to <strong>{email}</strong>. Click the link to activate your account, then come back and log in.
-          </p>
-          {error && <div className="auth-error">{error}</div>}
-          <button className="btn btn-primary btn-full" onClick={() => { setMode('login'); setError(''); setSuccess(''); }}>
-            Back to Login
-          </button>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="auth-screen">
@@ -162,6 +118,21 @@ export default function AuthScreen({ onAuth }) {
             minLength={6}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           />
+          {mode === 'signup' && captcha && (
+            <div className="captcha-box">
+              <label className="captcha-label">🤖 Prove you're human</label>
+              <p className="captcha-question">{captcha.question}</p>
+              <input
+                className="input"
+                type="number"
+                placeholder="Your answer"
+                value={captchaAnswer}
+                onChange={(e) => setCaptchaAnswer(e.target.value)}
+                required
+              />
+              <button type="button" className="captcha-refresh" onClick={loadCaptcha}>↻ New question</button>
+            </div>
+          )}
           {error && <div className="auth-error">{error}</div>}
           {success && <div className="auth-success">{success}</div>}
           <button className="btn btn-primary btn-full" type="submit" disabled={loading}>

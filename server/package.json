@@ -21,8 +21,7 @@
     "fast-xml-parser": "^5.5.9",
     "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.3",
-    "multer": "^2.1.1",
-    "resend": "^6.9.4"
+    "multer": "^2.1.1"
   },
   "devDependencies": {
     "better-sqlite3": "^12.8.0"

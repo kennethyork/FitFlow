@@ -10,7 +10,6 @@ const path = require('path');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
-const { Resend } = require('resend');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { FOOD_DB, FOOD_CATEGORIES } = require('./foodDatabase');
 const { searchUSDA, searchOpenFoodFacts } = require('./foodApis');
@@ -75,35 +74,34 @@ async function uploadToS3(filePath, fileName, mimetype) {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'fitflow-dev-secret-change-in-production';
 
-// ── Email (Resend) ──
-const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://kennethyork.github.io/FitFlow';
+// ── Simple CAPTCHA ──
+const captchaStore = new Map(); // id -> { answer, expires }
 
-function generateVerifyToken() {
-  return crypto.randomBytes(32).toString('hex');
-}
-
-async function sendVerificationEmail(email, token) {
-  const verifyUrl = `${FRONTEND_URL}?verify=${token}`;
-  if (!resend) {
-    console.log(`[DEV] Verify email for ${email}: ${verifyUrl}`);
-    return;
+app.get('/api/auth/captcha', (req, res) => {
+  const ops = ['+', '-'];
+  const op = ops[Math.floor(Math.random() * ops.length)];
+  let a, b;
+  if (op === '+') {
+    a = Math.floor(Math.random() * 20) + 1;
+    b = Math.floor(Math.random() * 20) + 1;
+  } else {
+    a = Math.floor(Math.random() * 20) + 5;
+    b = Math.floor(Math.random() * a);
   }
-  await resend.emails.send({
-    from: process.env.EMAIL_FROM || 'FitFlow <noreply@fitflow.app>',
-    to: email,
-    subject: 'Verify your FitFlow account',
-    html: `
-      <div style="font-family:sans-serif;max-width:480px;margin:0 auto;padding:32px;background:#0f1117;color:#e0e0e0;border-radius:12px">
-        <h1 style="color:#00a86b;text-align:center">🌿 FitFlow</h1>
-        <p>Welcome! Please verify your email to get started:</p>
-        <div style="text-align:center;margin:24px 0">
-          <a href="${verifyUrl}" style="background:#00a86b;color:#fff;padding:12px 32px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">Verify Email</a>
-        </div>
-        <p style="font-size:13px;color:#888">This link expires in 24 hours. If you didn't create an account, ignore this email.</p>
-      </div>
-    `,
-  });
+  const answer = op === '+' ? a + b : a - b;
+  const id = crypto.randomBytes(16).toString('hex');
+  captchaStore.set(id, { answer, expires: Date.now() + 5 * 60 * 1000 }); // 5 min
+  // Cleanup expired entries
+  for (const [k, v] of captchaStore) { if (v.expires < Date.now()) captchaStore.delete(k); }
+  res.json({ id, question: `What is ${a} ${op} ${b}?` });
+});
+
+function verifyCaptcha(id, answer) {
+  const entry = captchaStore.get(id);
+  if (!entry) return false;
+  captchaStore.delete(id);
+  if (entry.expires < Date.now()) return false;
+  return Number(answer) === entry.answer;
 }
 
 // ── PayPal setup (direct REST API — no SDK needed) ──
@@ -194,9 +192,11 @@ app.get('/api/tiers', (req, res) => {
 // ── Auth routes ──
 app.post('/api/auth/signup', async (req, res) => {
   try {
-    const { email, password, name, tier } = req.body;
+    const { email, password, name, tier, captchaId, captchaAnswer } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
     if (password.length < 6) return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    if (!captchaId || captchaAnswer === undefined) return res.status(400).json({ error: 'Please solve the CAPTCHA' });
+    if (!verifyCaptcha(captchaId, captchaAnswer)) return res.status(400).json({ error: 'Incorrect CAPTCHA answer. Please try again.' });
 
     const validTiers = ['free', 'pro', 'premium', 'unlimited'];
     const chosenTier = validTiers.includes(tier) ? tier : 'free';
@@ -205,56 +205,17 @@ app.post('/api/auth/signup', async (req, res) => {
     if (existing) return res.status(409).json({ error: 'Email already registered' });
 
     const hash = await bcrypt.hash(password, 10);
-    const verifyToken = generateVerifyToken();
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(); // 24h
-    const user = await insert('User', { email, password: hash, name: name || null, tier: chosenTier, verifyToken, verifyExpires });
-
-    // Send verification email (non-blocking)
-    sendVerificationEmail(email, verifyToken).catch(err => console.error('Failed to send verification email:', err));
+    const user = await insert('User', { email, password: hash, name: name || null, tier: chosenTier, emailVerified: 1 });
 
     const token = signToken(user);
-    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: false }, needsVerification: true });
+    res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: true } });
   } catch (error) {
     console.error('Signup error:', error);
     res.status(500).json({ error: 'Signup failed', detail: error.message });
   }
 });
 
-app.get('/api/auth/verify', async (req, res) => {
-  try {
-    const { token } = req.query;
-    if (!token) return res.status(400).json({ error: 'Verification token required' });
 
-    const user = await get('SELECT * FROM "User" WHERE "verifyToken" = ?', token);
-    if (!user) return res.status(400).json({ error: 'Invalid verification link' });
-    if (user.verifyExpires && new Date(user.verifyExpires) < new Date()) {
-      return res.status(400).json({ error: 'Verification link expired. Please request a new one.' });
-    }
-
-    await run('UPDATE "User" SET "emailVerified" = 1, "verifyToken" = NULL, "verifyExpires" = NULL WHERE "id" = ?', user.id);
-    res.json({ message: 'Email verified successfully' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Verification failed' });
-  }
-});
-
-app.post('/api/auth/resend-verification', auth, async (req, res) => {
-  try {
-    const user = await get('SELECT * FROM "User" WHERE "id" = ?', req.user.id);
-    if (!user) return res.status(404).json({ error: 'User not found' });
-    if (user.emailVerified) return res.json({ message: 'Email already verified' });
-
-    const verifyToken = generateVerifyToken();
-    const verifyExpires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    await run('UPDATE "User" SET "verifyToken" = ?, "verifyExpires" = ? WHERE "id" = ?', verifyToken, verifyExpires, user.id);
-    await sendVerificationEmail(user.email, verifyToken);
-    res.json({ message: 'Verification email sent' });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Failed to resend verification email' });
-  }
-});
 
 app.post('/api/auth/login', async (req, res) => {
   try {

@@ -15,6 +15,9 @@ dist-ssr
 server/node_modules
 server/*.db
 
+# Raw FDC source data (3.6GB) — not needed in repo
+scripts/fdc-data/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

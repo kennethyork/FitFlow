@@ -1,12 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
 import './App.css';
-import { apiUrl } from './api';
 import useCoachAI from './useCoachAI';
-import AuthScreen from './AuthScreen';
 import OnboardingScreen from './OnboardingScreen';
-import PricingScreen from './PricingScreen';
 import AccountScreen from './AccountScreen';
+import * as db from './db.js';
+import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, lookupBarcode as lookupBarcodeAPI, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 
@@ -44,11 +43,8 @@ function difficultyClass(d) {
 }
 
 function App() {
-  const [token, setToken] = useState(() => localStorage.getItem('token'));
-  const [user, setUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem('user')); } catch { return null; }
-  });
-  const [showPricing, setShowPricing] = useState(false);
+  const [user, setUser] = useState(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
@@ -87,7 +83,7 @@ function App() {
   const [coachQuery, setCoachQuery] = useState('');
   const [chatHistory, setChatHistory] = useState([]);
   const [coachTyping, setCoachTyping] = useState(false);
-  const { coachName, chat: aiChat } = useCoachAI(user?.id);
+  const { coachName, chat: aiChat } = useCoachAI(user?.id || 'local');
   const [mealSuggestions, setMealSuggestions] = useState([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
@@ -145,56 +141,16 @@ function App() {
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
-  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [foodDbProgress, setFoodDbProgress] = useState(null); // { status, loaded, total, category }
 
-  // PWA install prompt
-  const [installPrompt, setInstallPrompt] = useState(null);
-  const [showInstallBanner, setShowInstallBanner] = useState(false);
-
-  useEffect(() => {
-    const handler = (e) => {
-      e.preventDefault();
-      setInstallPrompt(e);
-      setShowInstallBanner(true);
-    };
-    window.addEventListener('beforeinstallprompt', handler);
-    return () => window.removeEventListener('beforeinstallprompt', handler);
-  }, []);
-
-  const handleInstall = async () => {
-    if (!installPrompt) return;
-    installPrompt.prompt();
-    const { outcome } = await installPrompt.userChoice;
-    if (outcome === 'accepted') {
-      setShowInstallBanner(false);
-      setInstallPrompt(null);
-    }
-  };
-
-  const authHeaders = token
-    ? { Authorization: `Bearer ${token}` }
-    : {};
-
-  const handleAuth = (newToken, newUser, isSignup) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-    if (isSignup) setShowOnboarding(true);
-  };
-
-  const handleOnboardComplete = (newToken, newUser) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
+  const handleOnboardComplete = async (profileData) => {
+    const saved = await db.saveProfile({ ...profileData, onboarded: true });
+    setUser(saved);
     setShowOnboarding(false);
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
-    setToken(null);
+  const handleLogout = async () => {
+    await db.clearAllData();
     setUser(null);
     setLogs([]);
     setHabits([]);
@@ -202,101 +158,60 @@ function App() {
     setChatHistory([]);
   };
 
-  const handleUpgrade = (newToken, newUser) => {
-    localStorage.setItem('token', newToken);
-    localStorage.setItem('user', JSON.stringify(newUser));
-    setToken(newToken);
-    setUser(newUser);
-    setShowPricing(false);
+  const handleProfileUpdate = async (profileData) => {
+    const saved = await db.saveProfile(profileData);
+    setUser(saved);
   };
 
-  // Handle PayPal return — capture payment after redirect back
+  // Load all data from local RxDB
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('paypal_capture') === 'pending' && params.get('token') && token) {
-      const orderId = params.get('token');
-      const tier = params.get('tier');
-      window.history.replaceState({}, '', window.location.pathname + window.location.hash);
-      fetch(apiUrl('/api/paypal/capture'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ orderId }),
-      })
-        .then(r => r.json())
-        .then(data => { if (data.token && data.user) handleUpgrade(data.token, data.user); })
-        .catch(() => {});
-    }
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) { setLoading(false); return; }
     (async () => {
       try {
         setLoading(true);
-        const hdrs = { Authorization: `Bearer ${token}` };
 
-        // Refresh user profile (picks up onboarded, calorieGoal, etc.)
-        const meRes = await fetch(apiUrl('/api/auth/me'), { headers: hdrs });
-        if (meRes.status === 401) { handleLogout(); return; }
-        if (meRes.ok) {
-          const freshUser = await meRes.json();
-          localStorage.setItem('user', JSON.stringify(freshUser));
-          setUser(freshUser);
-          if (!freshUser.onboarded) { setShowOnboarding(true); setLoading(false); return; }
+        // Load or create profile
+        let profile = await db.getProfile();
+        if (!profile) {
+          setShowOnboarding(true);
+          setLoading(false);
+          return;
         }
+        setUser(profile);
+        if (!profile.onboarded) { setShowOnboarding(true); setLoading(false); return; }
 
-        const [logsRes, habitsRes, playlistRes, mealsRes] = await Promise.all([
-          fetch(apiUrl('/api/food/logs'), { headers: hdrs }),
-          fetch(apiUrl('/api/habits'), { headers: hdrs }),
-          fetch(apiUrl('/api/workouts/playlist'), { headers: hdrs }),
-          fetch(apiUrl('/api/meals'), { headers: hdrs }),
+        // Load all data in parallel
+        const [logsData, habitsData, weightData, waterData, stepsData, chatData, favsData, streaksData, weeklyData] = await Promise.all([
+          db.getFoodLogs(),
+          db.getHabits(),
+          db.getWeightLogs(),
+          db.getWaterToday(),
+          db.getStepsToday(),
+          db.getChatMessages(),
+          db.getFavoriteMeals(),
+          db.getStreaks(),
+          db.getWeeklySummary(),
         ]);
 
-        const logsJson = await logsRes.json();
-        setLogs(Array.isArray(logsJson) ? logsJson : []);
+        setLogs(logsData);
+        setHabits(habitsData);
+        setWeightLogs(weightData);
+        setWaterGlasses(waterData);
+        setStepsToday(stepsData);
+        setChatHistory(chatData);
+        setFavoriteMeals(favsData);
+        setStreakData(streaksData);
+        setWeeklySummary(weeklyData);
 
-        if (habitsRes.ok) setHabits(await habitsRes.json());
-        if (mealsRes.ok) setDailyMeals(await mealsRes.json());
-        if (playlistRes.ok) {
-          const pData = await playlistRes.json();
-          setPlaylist(pData.workouts || pData || []);
-          setWorkoutCategory(pData.category || '');
-        }
-
-        // Load weight, water, photos, steps
-        const [weightRes, waterRes, photosRes, stepsRes, chatRes, favsRes] = await Promise.all([
-          fetch(apiUrl('/api/weight'), { headers: hdrs }),
-          fetch(apiUrl('/api/water/today'), { headers: hdrs }),
-          fetch(apiUrl('/api/progress-photos'), { headers: hdrs }),
-          fetch(apiUrl('/api/steps/today'), { headers: hdrs }),
-          fetch(apiUrl('/api/chat'), { headers: hdrs }),
-          fetch(apiUrl('/api/food/favorites'), { headers: hdrs }),
-        ]);
-        if (weightRes.ok) setWeightLogs(await weightRes.json());
-        if (waterRes.ok) { const w = await waterRes.json(); setWaterGlasses(w.glasses || 0); }
-        if (photosRes.ok) setProgressPhotos(await photosRes.json());
-        if (stepsRes.ok) { const s = await stepsRes.json(); setStepsToday(s.steps || 0); }
-        if (chatRes.ok) { const msgs = await chatRes.json(); setChatHistory(Array.isArray(msgs) ? msgs : []); }
-        if (favsRes.ok) setFavoriteMeals(await favsRes.json());
-
-        // Load streaks & weekly summary
-        const [streaksRes, weeklyRes] = await Promise.all([
-          fetch(apiUrl('/api/progress/streaks'), { headers: hdrs }),
-          fetch(apiUrl('/api/progress/weekly'), { headers: hdrs }),
-        ]);
-        if (streaksRes.ok) setStreakData(await streaksRes.json());
-        if (weeklyRes.ok) setWeeklySummary(await weeklyRes.json());
+        // Load food reference database in background
+        loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
       } catch (err) {
         console.error(err);
-        setLoadError('Unable to connect to server.');
-        setLogs([]);
-        setHabits([]);
-        setPlaylist([]);
+        setLoadError('Unable to load local data.');
       } finally {
         setLoading(false);
       }
     })();
-  }, [token]);
+  }, []);
 
   const totalCals = logs.reduce((s, l) => s + (l.calories || 0), 0);
   const totalProtein = logs.reduce((s, l) => s + (l.protein || 0), 0);
@@ -309,9 +224,8 @@ function App() {
     setFoodSearchQuery(query);
     if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); return; }
     try {
-      const res = await fetch(apiUrl(`/api/food/search?q=${encodeURIComponent(query.trim())}`));
-      const data = await res.json();
-      setFoodSearchResults(data.results || []);
+      const results = await searchFoodsAPI(query.trim());
+      setFoodSearchResults(results || []);
       setShowFoodSearch(true);
     } catch { setFoodSearchResults([]); }
   };
@@ -331,15 +245,9 @@ function App() {
   const logWeight = async () => {
     if (!weightInput) return;
     hapticTap();
-    const res = await fetch(apiUrl('/api/weight'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ weight: parseFloat(weightInput), unit: weightUnit }),
-    });
-    if (res.ok) {
-      const log = await res.json();
-      setWeightLogs(prev => [log, ...prev]);
-      setWeightInput('');
-    }
+    const log = await db.addWeightLog({ weight: parseFloat(weightInput), unit: weightUnit });
+    setWeightLogs(prev => [log, ...prev]);
+    setWeightInput('');
   };
 
   // ── Water handlers ──
@@ -348,89 +256,82 @@ function App() {
     if (next >= waterGoal && waterGlasses < waterGoal) hapticSuccess();
     else hapticTap();
     setWaterGlasses(next);
-    await fetch(apiUrl('/api/water'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ glasses: next }),
-    });
+    await db.setWaterToday(next);
   };
 
-  // ── Progress photo handler ──
+  // ── Progress photo handler (stored as data URLs locally) ──
   const uploadProgressPhoto = async () => {
     if (!photoFile) return;
-    const fd = new FormData();
-    fd.append('image', photoFile);
-    fd.append('note', photoNote);
-    const res = await fetch(apiUrl('/api/progress-photos'), {
-      method: 'POST', headers: { ...authHeaders }, body: fd,
-    });
-    if (res.ok) {
-      hapticSuccess();
-      const photo = await res.json();
+    hapticSuccess();
+    const reader = new FileReader();
+    reader.onload = () => {
+      const photo = {
+        id: Date.now().toString(36),
+        imageUrl: reader.result,
+        note: photoNote,
+        loggedAt: new Date().toISOString(),
+      };
       setProgressPhotos(prev => [photo, ...prev]);
+      // Store in localStorage (RxDB doesn't handle blobs well)
+      const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
+      stored.unshift(photo);
+      localStorage.setItem('fitflow_photos', JSON.stringify(stored.slice(0, 50)));
       setPhotoFile(null);
       setPhotoNote('');
-    }
+    };
+    reader.readAsDataURL(photoFile);
   };
 
-  const deleteProgressPhoto = async (id) => {
+  const deleteProgressPhoto = (id) => {
     hapticWarning();
-    await fetch(apiUrl(`/api/progress-photos/${id}`), { method: 'DELETE', headers: authHeaders });
     setProgressPhotos(prev => prev.filter(p => p.id !== id));
+    const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
+    localStorage.setItem('fitflow_photos', JSON.stringify(stored.filter(p => p.id !== id)));
   };
 
   // ── Step handlers ──
   const logSteps = async () => {
     if (!stepInput) return;
     hapticTap();
-    const res = await fetch(apiUrl('/api/steps'), {
-      method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ steps: parseInt(stepInput, 10) }),
-    });
-    if (res.ok) {
-      const log = await res.json();
-      setStepsToday(log.steps);
-      setStepInput('');
-    }
+    const steps = parseInt(stepInput, 10);
+    await db.setStepsToday(steps);
+    setStepsToday(steps);
+    setStepInput('');
   };
 
   const syncNativeSteps = async () => {
-    const { steps, source } = await readNativeSteps();
+    const { steps } = await readNativeSteps();
     if (steps > 0) {
       hapticTap();
-      const res = await fetch(apiUrl('/api/steps'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ steps }),
-      });
-      if (res.ok) { const log = await res.json(); setStepsToday(log.steps); }
+      await db.setStepsToday(steps);
+      setStepsToday(steps);
     }
   };
 
   // Init native status bar + auto-sync steps + live pedometer
   useEffect(() => {
     initStatusBar();
+    // Load progress photos from localStorage
+    const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
+    setProgressPhotos(stored);
     // Auto sync steps from pedometer when native
-    if (isNative && token) {
+    if (isNative) {
       readNativeSteps().then(({ steps }) => {
         if (steps > 0) {
-          fetch(apiUrl('/api/steps'), {
-            method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ steps }),
-          }).then(r => r.ok ? r.json() : null).then(log => {
-            if (log) setStepsToday(log.steps);
-          });
+          db.setStepsToday(steps).then(() => setStepsToday(steps));
         }
       });
     }
-  }, [token]);
+  }, []);
 
   // Live pedometer — update step count in real time on native
   useEffect(() => {
-    if (!isNative || !token) return;
+    if (!isNative) return;
     const unsub = subscribePedometer((steps) => {
       setStepsToday(steps);
     });
     return unsub;
-  }, [token]);
+  }, []);
 
   // Celebrate step goal
   useEffect(() => {
@@ -441,7 +342,7 @@ function App() {
 
   // Schedule daily reminder notification on native
   useEffect(() => {
-    if (isNative && token) {
+    if (isNative) {
       const now = new Date();
       const nineAM = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 9, 0, 0);
       if (now < nineAM) {
@@ -454,55 +355,41 @@ function App() {
         scheduleNotification('FitFlow', '🌙 Don\'t forget to log your water and steps before bed!', secs);
       }
     }
-  }, [token]);
+  }, []);
 
   const addLog = async (e) => {
     e.preventDefault();
     if (!meal.trim()) return;
     hapticTap();
-    const res = await fetch(apiUrl('/api/food/logs'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({
-        meal,
-        calories: parseInt(mealCals, 10) || 0,
-        protein: parseInt(mealProtein, 10) || 0,
-        carbs: parseInt(mealCarbs, 10) || 0,
-        fat: parseInt(mealFat, 10) || 0,
-
-      }),
+    const newLog = await db.addFoodLog({
+      meal,
+      calories: parseInt(mealCals, 10) || 0,
+      protein: parseInt(mealProtein, 10) || 0,
+      carbs: parseInt(mealCarbs, 10) || 0,
+      fat: parseInt(mealFat, 10) || 0,
     });
-    if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
-    const data = await fetch(apiUrl('/api/food/logs'), { headers: authHeaders }).then((r) => r.json());
-    setLogs(Array.isArray(data) ? data : []);
+    setLogs(prev => [newLog, ...prev]);
     setMeal('');
     setMealCals('');
     setMealProtein('');
     setMealCarbs('');
     setMealFat('');
-
   };
 
   const logRecipe = async (recipe) => {
     hapticSuccess();
-    const res = await fetch(apiUrl('/api/food/logs'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({
-        meal: recipe.name,
-        calories: recipe.calories,
-        protein: recipe.protein,
-        carbs: recipe.carbs,
-        fat: recipe.fat,
-      }),
+    const newLog = await db.addFoodLog({
+      meal: recipe.name,
+      calories: recipe.calories,
+      protein: recipe.protein,
+      carbs: recipe.carbs,
+      fat: recipe.fat,
     });
-    if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
-    const data = await fetch(apiUrl('/api/food/logs'), { headers: authHeaders }).then((r) => r.json());
-    setLogs(Array.isArray(data) ? data : []);
+    setLogs(prev => [newLog, ...prev]);
   };
 
   const deleteLog = async (id) => {
-    await fetch(apiUrl(`/api/food/logs/${id}`), { method: 'DELETE', headers: authHeaders });
+    await db.deleteFoodLog(id);
     setLogs((prev) => prev.filter((l) => l.id !== id));
     setConfirmDelete(null);
   };
@@ -517,19 +404,14 @@ function App() {
   };
 
   const saveEditLog = async (id) => {
-    const res = await fetch(apiUrl(`/api/food/logs/${id}`), {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({
-        meal: editMeal,
-        calories: parseInt(editCals, 10) || 0,
-        protein: parseInt(editProtein, 10) || 0,
-        carbs: parseInt(editCarbs, 10) || 0,
-        fat: parseInt(editFat, 10) || 0,
-      }),
+    const updated = await db.updateFoodLog(id, {
+      meal: editMeal,
+      calories: parseInt(editCals, 10) || 0,
+      protein: parseInt(editProtein, 10) || 0,
+      carbs: parseInt(editCarbs, 10) || 0,
+      fat: parseInt(editFat, 10) || 0,
     });
-    if (res.ok) {
-      const updated = await res.json();
+    if (updated) {
       setLogs((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     }
     setEditingLog(null);
@@ -537,28 +419,21 @@ function App() {
 
   const loadFavorites = async () => {
     try {
-      const res = await fetch(apiUrl('/api/food/favorites'), { headers: authHeaders });
-      if (res.ok) setFavoriteMeals(await res.json());
+      setFavoriteMeals(await db.getFavoriteMeals());
     } catch { /* ignore */ }
   };
 
   const saveFavorite = async () => {
     if (!meal.trim()) return;
     try {
-      const res = await fetch(apiUrl('/api/food/favorites'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders },
-        body: JSON.stringify({ meal, calories: +mealCals || 0, protein: +mealProtein || 0, carbs: +mealCarbs || 0, fat: +mealFat || 0 }),
-      });
-      if (res.ok) {
-        const fav = await res.json();
-        setFavoriteMeals(prev => [fav, ...prev]);
-      }
+      const fav = await db.addFavoriteMeal({ meal, calories: +mealCals || 0, protein: +mealProtein || 0, carbs: +mealCarbs || 0, fat: +mealFat || 0 });
+      setFavoriteMeals(prev => [fav, ...prev]);
     } catch { /* ignore */ }
   };
 
   const deleteFavorite = async (id) => {
     try {
-      await fetch(apiUrl(`/api/food/favorites/${id}`), { method: 'DELETE', headers: authHeaders });
+      await db.deleteFavoriteMeal(id);
       setFavoriteMeals(prev => prev.filter(f => f.id !== id));
     } catch { /* ignore */ }
   };
@@ -576,11 +451,8 @@ function App() {
     setMealSuggestions([]);
     const remaining = Math.max(0, calGoal - totalCals);
     try {
-      const res = await fetch(apiUrl(`/api/food/suggest?remaining=${remaining}&goal=${user?.goalType || 'lose'}`), { headers: authHeaders });
-      if (res.ok) {
-        const data = await res.json();
-        setMealSuggestions(data);
-      }
+      const data = getMealSuggestionsLocal(remaining, user?.goalType || 'lose');
+      setMealSuggestions(data);
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };
@@ -597,16 +469,14 @@ function App() {
   // ── Streaks & Badges ──
   const fetchStreaks = async () => {
     try {
-      const res = await fetch(apiUrl('/api/progress/streaks'), { headers: authHeaders });
-      if (res.ok) setStreakData(await res.json());
+      setStreakData(await db.getStreaks());
     } catch { /* ignore */ }
   };
 
   // ── Weekly Summary ──
   const fetchWeeklySummary = async () => {
     try {
-      const res = await fetch(apiUrl('/api/progress/weekly'), { headers: authHeaders });
-      if (res.ok) setWeeklySummary(await res.json());
+      setWeeklySummary(await db.getWeeklySummary());
     } catch { /* ignore */ }
   };
 
@@ -616,12 +486,8 @@ function App() {
     setBarcodeScanning(true);
     setBarcodeResult(null);
     try {
-      const res = await fetch(apiUrl(`/api/food/barcode/${encodeURIComponent(barcodeInput.trim())}`), { headers: authHeaders });
-      if (res.ok) {
-        setBarcodeResult(await res.json());
-      } else {
-        setBarcodeResult({ error: 'Product not found. Check the barcode and try again.' });
-      }
+      const result = await lookupBarcodeAPI(barcodeInput.trim());
+      setBarcodeResult(result || { error: 'Product not found. Check the barcode and try again.' });
     } catch {
       setBarcodeResult({ error: 'Unable to look up barcode. Please try again.' });
     }
@@ -670,8 +536,8 @@ function App() {
         }
         return [...prev, { role: 'coach', text: answer }];
       });
-      // Persist both messages to DB
-      fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: answer }] }) }).catch(() => {});
+      // Persist both messages to local DB
+      db.addChatMessages([{ role: 'user', text: q }, { role: 'coach', text: answer }]).catch(() => {});
 
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
@@ -712,24 +578,17 @@ function App() {
         taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
         if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
         try {
-          const res = await fetch(apiUrl('/api/habits/assign'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...authHeaders },
-            body: JSON.stringify({ title: taskTitle }),
-          });
-          if (res.ok) {
-            const newTask = await res.json();
-            setHabits((prev) => [...prev, newTask]);
-            const taskMsg = `✅ I've added "${taskTitle}" to your daily tasks!`;
-            setChatHistory((prev) => [...prev, { role: 'coach', text: taskMsg }]);
-            fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'coach', text: taskMsg }] }) }).catch(() => {});
-          }
+          const newTask = await db.addHabit(taskTitle);
+          setHabits((prev) => [...prev, newTask]);
+          const taskMsg = `✅ I've added "${taskTitle}" to your daily tasks!`;
+          setChatHistory((prev) => [...prev, { role: 'coach', text: taskMsg }]);
+          db.addChatMessages([{ role: 'coach', text: taskMsg }]).catch(() => {});
         } catch { /* ignore assign error */ }
       }
     } catch {
       const errMsg = "Sorry, I couldn't process that. Try again!";
       setChatHistory((prev) => [...prev, { role: 'coach', text: errMsg }]);
-      fetch(apiUrl('/api/chat'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders }, body: JSON.stringify({ messages: [{ role: 'user', text: q }, { role: 'coach', text: errMsg }] }) }).catch(() => {});
+      db.addChatMessages([{ role: 'user', text: q }, { role: 'coach', text: errMsg }]).catch(() => {});
     } finally {
       setCoachTyping(false);
     }
@@ -738,75 +597,99 @@ function App() {
   const addHabit = async () => {
     if (!newHabit.trim()) return;
     hapticTap();
-    const res = await fetch(apiUrl('/api/habits'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders },
-      body: JSON.stringify({ title: newHabit }),
-    });
-    if (res.status === 403) { const j = await res.json(); if (j.upgrade) setShowPricing(true); return; }
-    const habit = await res.json();
+    const habit = await db.addHabit(newHabit);
     setHabits((prev) => [...prev, habit]);
     setNewHabit('');
   };
 
   const toggleHabit = async (id) => {
-    const res = await fetch(apiUrl(`/api/habits/${id}/toggle`), { method: 'PUT', headers: authHeaders });
-    const updated = await res.json();
+    const updated = await db.toggleHabit(id);
     if (updated.completed) hapticSuccess(); else hapticTap();
     setHabits((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
   };
 
   const deleteHabit = async (id) => {
-    const res = await fetch(apiUrl(`/api/habits/${id}`), { method: 'DELETE', headers: authHeaders });
-    if (res.ok) setHabits((prev) => prev.filter((h) => h.id !== id));
+    await db.deleteHabit(id);
+    setHabits((prev) => prev.filter((h) => h.id !== id));
   };
+
+  // ── Workouts (curated, no server) ──
+  const CURATED_WORKOUTS = [
+    { id: 'w1', title: 'Full Body HIIT – 20 min', videoId: 'ml6cT4AZdqI', duration: '20 min', level: 'Intermediate' },
+    { id: 'w2', title: 'Beginner Yoga Flow', videoId: 'v7AYKMP6rOE', duration: '15 min', level: 'Beginner' },
+    { id: 'w3', title: 'Core Strength Workout', videoId: 'AnYl6Nk9QlY', duration: '10 min', level: 'All Levels' },
+    { id: 'w4', title: 'Upper Body Dumbbell Workout', videoId: '3p8EBPVZ2Iw', duration: '25 min', level: 'Intermediate' },
+    { id: 'w5', title: 'Lower Body Burn', videoId: 'UBnT9hT2JjM', duration: '20 min', level: 'Intermediate' },
+    { id: 'w6', title: '5 Minute Stretch Routine', videoId: 'sTANio_2E0Q', duration: '5 min', level: 'Beginner' },
+    { id: 'w7', title: 'Fat Burning Cardio – No Equipment', videoId: 'VHyGqsPOUHs', duration: '30 min', level: 'All Levels' },
+    { id: 'w8', title: 'Pilates for Beginners', videoId: 'K56Z12XNQ5c', duration: '20 min', level: 'Beginner' },
+  ];
 
   const searchWorkouts = async () => {
     if (!workoutSearchTerm.trim()) return;
-    const res = await fetch(
-      `/api/workouts/search?q=${encodeURIComponent(workoutSearchTerm)}`,
-      { headers: authHeaders }
-    );
-    const data = await res.json();
-    setWorkoutResults(data.workouts || data.results || []);
+    const q = workoutSearchTerm.toLowerCase();
+    setWorkoutResults(CURATED_WORKOUTS.filter(w => w.title.toLowerCase().includes(q) || w.level.toLowerCase().includes(q)));
   };
 
-  // ── Video browse helpers ──
-  const loadVideoTabs = async () => {
-    try {
-      const res = await fetch(apiUrl('/api/videos/tabs'), { headers: authHeaders });
-      if (res.ok) setVideoTabs(await res.json());
-    } catch (e) { console.error('Failed to load video tabs', e); }
+  // ── Video browse helpers (curated, no server) ──
+  const DEFAULT_VIDEO_TABS = [
+    { id: 'hiit', label: 'HIIT' },
+    { id: 'yoga', label: 'Yoga' },
+    { id: 'strength', label: 'Strength' },
+    { id: 'cardio', label: 'Cardio' },
+    { id: 'stretch', label: 'Stretching' },
+  ];
+
+  const CURATED_VIDEOS = {
+    hiit: [
+      { id: 'v1', title: '20 Min Full Body HIIT', videoId: 'ml6cT4AZdqI', channel: 'MadFit' },
+      { id: 'v2', title: '15 Min HIIT No Equipment', videoId: 'VHyGqsPOUHs', channel: 'JEFIT' },
+    ],
+    yoga: [
+      { id: 'v3', title: 'Yoga For Beginners', videoId: 'v7AYKMP6rOE', channel: 'Yoga With Adriene' },
+      { id: 'v4', title: 'Morning Yoga Flow', videoId: 'sTANio_2E0Q', channel: 'Yoga With Adriene' },
+    ],
+    strength: [
+      { id: 'v5', title: 'Full Body Strength', videoId: '3p8EBPVZ2Iw', channel: 'Sydney Cummings' },
+      { id: 'v6', title: 'Dumbbell Workout', videoId: 'UBnT9hT2JjM', channel: 'Heather Robertson' },
+    ],
+    cardio: [
+      { id: 'v7', title: 'Fat Burning Cardio', videoId: 'VHyGqsPOUHs', channel: 'JEFIT' },
+    ],
+    stretch: [
+      { id: 'v8', title: '5 Minute Cool Down Stretch', videoId: 'sTANio_2E0Q', channel: 'MadFit' },
+    ],
   };
 
-  const loadBrowseVideos = async (tabId, query) => {
+  const loadVideoTabs = () => {
+    setVideoTabs(DEFAULT_VIDEO_TABS);
+  };
+
+  const loadBrowseVideos = (tabId, query) => {
     setBrowseLoading(true);
-    try {
-      const url = query
-        ? apiUrl(`/api/videos/browse?q=${encodeURIComponent(query)}`)
-        : apiUrl(`/api/videos/browse?tab=${encodeURIComponent(tabId || activeVideoTab)}`);
-      const res = await fetch(url, { headers: authHeaders });
-      if (res.ok) {
-        const data = await res.json();
-        setBrowseVideos(data.videos || []);
-      }
-    } catch (e) { console.error('Failed to load videos', e); }
+    if (query) {
+      const q = query.toLowerCase();
+      const all = Object.values(CURATED_VIDEOS).flat();
+      setBrowseVideos(all.filter(v => v.title.toLowerCase().includes(q)));
+    } else {
+      setBrowseVideos(CURATED_VIDEOS[tabId || activeVideoTab] || []);
+    }
     setBrowseLoading(false);
   };
 
   useEffect(() => {
-    if (tab === 'videos' && token) {
+    if (tab === 'videos') {
       if (videoTabs.length === 0) loadVideoTabs();
       loadBrowseVideos(activeVideoTab);
     }
-  }, [tab, activeVideoTab, token]);
+  }, [tab, activeVideoTab]);
 
-  if (!token) {
-    return <AuthScreen onAuth={handleAuth} />;
+  if (!user) {
+    return <OnboardingScreen onComplete={handleOnboardComplete} />;
   }
 
   if (showOnboarding) {
-    return <OnboardingScreen token={token} onComplete={handleOnboardComplete} />;
+    return <OnboardingScreen onComplete={handleOnboardComplete} />;
   }
 
   if (loading) {
@@ -849,14 +732,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      {showPricing && (
-        <PricingScreen
-          currentTier={user?.tier || 'free'}
-          token={token}
-          onUpgrade={handleUpgrade}
-          onClose={() => setShowPricing(false)}
-        />
-      )}
 
       {/* Sidebar — desktop only */}
       <aside className="sidebar">
@@ -875,10 +750,6 @@ function App() {
           </button>
         ))}
         <div className="sidebar-spacer" />
-        <button className="sidebar-item" onClick={() => setShowPricing(true)}>
-          <span className="sidebar-icon">⭐</span>
-          {user?.tier === 'free' ? 'Upgrade' : 'Plan'}
-        </button>
         <button className={`sidebar-item ${tab === 'account' ? 'active' : ''}`} onClick={() => setTab('account')}>
           <span className="sidebar-icon">⚙️</span>
           Account
@@ -894,10 +765,6 @@ function App() {
         <div className="app-header">
           <h1>FitFlow</h1>
           <div className="header-right">
-            <span className={`tier-badge ${user?.tier || 'free'}`}>{(user?.tier || 'free').toUpperCase()}</span>
-            <button className="btn btn-secondary btn-sm" onClick={() => setShowPricing(true)}>
-              {user?.tier === 'free' ? '⭐ Upgrade' : '⭐ Plan'}
-            </button>
             <button className="btn btn-secondary btn-sm" onClick={() => setTab('account')}>⚙️</button>
           </div>
         </div>
@@ -909,19 +776,6 @@ function App() {
         {/* ═══════ HOME TAB ═══════ */}
         {tab === 'home' && (
           <>
-            {/* PWA Install Banner */}
-            {showInstallBanner && (
-              <div className="install-banner">
-                <div className="install-icon">📲</div>
-                <div className="install-text">
-                  <strong>Install FitFlow</strong>
-                  <span>Add to home screen for the full app experience</span>
-                </div>
-                <button className="btn btn-primary btn-sm" onClick={handleInstall}>Install</button>
-                <button className="install-dismiss" onClick={() => setShowInstallBanner(false)}>✕</button>
-              </div>
-            )}
-
             {/* Streak Banner */}
             {(streakData?.currentStreak > 0 || logs.length > 0) && (
             <div className="streak-banner">
@@ -1291,6 +1145,20 @@ function App() {
         {/* ═══════ FOOD TAB ═══════ */}
         {tab === 'food' && (
           <>
+            {/* Food database loading banner */}
+            {foodDbProgress && foodDbProgress.status !== 'done' && (
+              <div className="card" style={{ padding: '12px 16px', marginBottom: 12, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
+                {foodDbProgress.status === 'cache' ? '⏳ Loading food database...' : (
+                  <>⏳ Downloading food database... {foodDbProgress.loaded?.toLocaleString()} / {foodDbProgress.total?.toLocaleString()} foods</>
+                )}
+                {foodDbProgress.total > 0 && (
+                  <div style={{ marginTop: 6, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${Math.round((foodDbProgress.loaded / foodDbProgress.total) * 100)}%`, background: 'var(--primary)', borderRadius: 2, transition: 'width 0.3s' }} />
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Daily Meal Plan */}
             {dailyMeals && (
               <>
@@ -1395,10 +1263,8 @@ function App() {
                           <div className="food-search-name">
                             <span className={`noom-dot noom-${f.color}`} />
                             <span>{f.name}</span>
-                            {f.source && f.source !== 'local' && (
-                              <span className={`food-source-badge source-${f.source}`}>
-                                {f.source === 'usda' ? 'USDA' : 'OFF'}
-                              </span>
+                            {f.brand && (
+                              <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 4 }}>{f.brand}</span>
                             )}
                           </div>
                           <div className="food-search-meta">
@@ -1429,11 +1295,9 @@ function App() {
                   </div>
                 </div>
                 <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  {user?.tier && user.tier !== 'free' && (
-                    <button type="button" className="btn btn-secondary" onClick={saveFavorite} disabled={!meal.trim()}>
+                  <button type="button" className="btn btn-secondary" onClick={saveFavorite} disabled={!meal.trim()}>
                       ⭐ Save Favorite
                     </button>
-                  )}
                   <button type="submit" className="btn btn-primary">
                     + Log Meal
                   </button>
@@ -1441,9 +1305,8 @@ function App() {
               </form>
             </div>
 
-            {/* Quick Favorites — paid tiers only */}
-            {user?.tier && user.tier !== 'free' ? (
-              favoriteMeals.length > 0 && (
+            {/* Quick Favorites */}
+            {favoriteMeals.length > 0 && (
                 <div className="card">
                   <div className="card-title">⭐ Favorites</div>
                   <div className="favorites-list">
@@ -1458,17 +1321,9 @@ function App() {
                     ))}
                   </div>
                 </div>
-              )
-            ) : (
-              <div className="ai-panel" style={{ textAlign: 'center', padding: '20px 16px' }}>
-                <h4>⭐ Quick Favorites</h4>
-                <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '8px 0 12px' }}>Upgrade to Pro or higher to save and quick-log your favorite meals.</p>
-                <button className="btn btn-primary" onClick={() => setShowPricing(true)}>Upgrade</button>
-              </div>
-            )}
+              )}
 
-            {/* Meal Suggestions — paid tiers only */}
-            {user?.tier && user.tier !== 'free' ? (
+            {/* Meal Suggestions */}
             <div className="ai-panel">
               <h4>Meal Suggestions</h4>
               <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '4px 0 10px' }}>
@@ -1498,13 +1353,6 @@ function App() {
                 </div>
               )}
             </div>
-            ) : (
-            <div className="ai-panel" style={{ textAlign: 'center', padding: '20px 16px' }}>
-              <h4>Meal Suggestions</h4>
-              <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '8px 0 12px' }}>Upgrade to Pro or higher to get personalized meal suggestions based on your remaining macros.</p>
-              <button className="btn btn-primary" onClick={() => setShowPricing(true)}>Upgrade</button>
-            </div>
-            )}
 
             {/* Recent Meals */}
             <div className="section-title">Recent Meals</div>
@@ -1874,10 +1722,8 @@ function App() {
         {tab === 'account' && (
           <AccountScreen
             user={user}
-            token={token}
-            onUpdate={handleUpgrade}
+            onUpdate={handleProfileUpdate}
             onLogout={handleLogout}
-            onShowPricing={() => setShowPricing(true)}
           />
         )}
       </div>

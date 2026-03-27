@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { apiUrl } from './api';
+import * as db from './db.js';
 
 const GOALS = [
   { id: 'lose', icon: '🔥', title: 'Lose Weight', desc: 'Burn fat and get lean' },
@@ -20,7 +20,7 @@ const CALORIE_PRESETS = {
   gain:     { sedentary: 2000, light: 2200, moderate: 2400, active: 2800 },
 };
 
-export default function OnboardingScreen({ token, onComplete }) {
+export default function OnboardingScreen({ onComplete }) {
   const [step, setStep] = useState(0);
   const [goal, setGoal] = useState('');
   const [activity, setActivity] = useState('');
@@ -31,17 +31,13 @@ export default function OnboardingScreen({ token, onComplete }) {
   const finish = async () => {
     setSaving(true);
     try {
-      const res = await fetch(apiUrl('/api/auth/onboard'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          goalType: goal,
-          activityLevel: activity,
-          calorieGoal: suggestedCals,
-        }),
+      const profile = await db.saveProfile({
+        goalType: goal,
+        activityLevel: activity,
+        calorieGoal: suggestedCals,
+        onboarded: true,
       });
-      const data = await res.json();
-      onComplete(data.token, data.user);
+      onComplete(profile);
     } catch {
       setSaving(false);
     }

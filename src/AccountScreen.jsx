@@ -1,72 +1,60 @@
 import { useState } from 'react';
-import { apiUrl } from './api';
+import * as db from './db.js';
 
-export default function AccountScreen({ user, token, onUpdate, onLogout, onShowPricing }) {
+export default function AccountScreen({ user, onUpdate, onLogout }) {
   const [name, setName] = useState(user?.name || '');
-  const [email, setEmail] = useState(user?.email || '');
   const [goalType, setGoalType] = useState(user?.goalType || 'lose');
   const [activityLevel, setActivityLevel] = useState(user?.activityLevel || 'moderate');
   const [calorieGoal, setCalorieGoal] = useState(user?.calorieGoal || 1800);
 
-  const [currentPassword, setCurrentPassword] = useState('');
-  const [newPassword, setNewPassword] = useState('');
-
-  const [deletePassword, setDeletePassword] = useState('');
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState(null);
-
-  const hdrs = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
 
   const showMsg = (text, ok = true) => { setMsg({ text, ok }); setTimeout(() => setMsg(null), 3000); };
 
   const saveProfile = async () => {
     setSaving(true);
     try {
-      const res = await fetch(apiUrl('/api/auth/profile'), {
-        method: 'PUT', headers: hdrs,
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), goalType, activityLevel, calorieGoal: Number(calorieGoal) }),
-      });
-      const data = await res.json();
-      if (res.ok) { onUpdate(data.token, data.user); showMsg('Profile saved!'); }
-      else showMsg(data.error || 'Save failed', false);
-    } catch { showMsg('Network error', false); }
+      const profile = await db.saveProfile({ name: name.trim(), goalType, activityLevel, calorieGoal: Number(calorieGoal), onboarded: true });
+      onUpdate(profile);
+      showMsg('Profile saved!');
+    } catch { showMsg('Save failed', false); }
     finally { setSaving(false); }
   };
 
-  const changePassword = async () => {
-    if (!currentPassword || !newPassword) return showMsg('Fill in both password fields', false);
-    if (newPassword.length < 6) return showMsg('New password must be 6+ characters', false);
+  const exportData = async () => {
+    try {
+      const [profile, logs, habits, weights, favorites, chats] = await Promise.all([
+        db.getProfile(),
+        db.getFoodLogs(),
+        db.getHabits(),
+        db.getWeightLogs(),
+        db.getFavoriteMeals(),
+        db.getChatMessages(),
+      ]);
+      const data = { profile, logs, habits, weights, favorites, chats, exportedAt: new Date().toISOString() };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `fitflow-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showMsg('Data exported!');
+    } catch { showMsg('Export failed', false); }
+  };
+
+  const resetAllData = async () => {
     setSaving(true);
     try {
-      const res = await fetch(apiUrl('/api/auth/password'), {
-        method: 'PUT', headers: hdrs,
-        body: JSON.stringify({ currentPassword, newPassword }),
-      });
-      const data = await res.json();
-      if (res.ok) { showMsg('Password changed!'); setCurrentPassword(''); setNewPassword(''); }
-      else showMsg(data.error || 'Change failed', false);
-    } catch { showMsg('Network error', false); }
+      await db.clearAllData();
+      showMsg('All data cleared!');
+      onLogout();
+    } catch { showMsg('Reset failed', false); }
     finally { setSaving(false); }
   };
-
-  const deleteAccount = async () => {
-    if (!deletePassword) return showMsg('Enter your password to confirm', false);
-    setSaving(true);
-    try {
-      const res = await fetch(apiUrl('/api/auth/account'), {
-        method: 'DELETE', headers: hdrs,
-        body: JSON.stringify({ password: deletePassword }),
-      });
-      const data = await res.json();
-      if (res.ok) onLogout();
-      else showMsg(data.error || 'Delete failed', false);
-    } catch { showMsg('Network error', false); }
-    finally { setSaving(false); }
-  };
-
-  const tierLabel = { free: 'Free', pro: 'Pro', premium: 'Premium', unlimited: 'Unlimited' };
 
   return (
     <div className="account-screen">
@@ -78,10 +66,6 @@ export default function AccountScreen({ user, token, onUpdate, onLogout, onShowP
         <div className="account-field">
           <label>Name</label>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Your name" />
-        </div>
-        <div className="account-field">
-          <label>Email</label>
-          <input className="input" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="you@example.com" />
         </div>
         <button className="btn btn-primary btn-full" onClick={saveProfile} disabled={saving}>
           {saving ? 'Saving...' : 'Save Profile'}
@@ -120,68 +104,36 @@ export default function AccountScreen({ user, token, onUpdate, onLogout, onShowP
         </button>
       </div>
 
-      {/* Plan */}
+      {/* Data Management */}
       <div className="card">
-        <div className="card-title">Subscription</div>
-        <div className="account-plan-row">
-          <div>
-            <div className="account-plan-name">{tierLabel[user?.tier] || 'Free'}</div>
-            <div className="account-plan-sub">Current plan</div>
-          </div>
-          <button className="btn btn-primary btn-sm" onClick={onShowPricing}>
-            {user?.tier === 'free' ? 'Upgrade' : 'Change Plan'}
-          </button>
-        </div>
-      </div>
-
-      {/* Change Password */}
-      <div className="card">
-        <div className="card-title">Change Password</div>
-        <div className="account-field">
-          <label>Current Password</label>
-          <input className="input" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="••••••" />
-        </div>
-        <div className="account-field">
-          <label>New Password</label>
-          <input className="input" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Min 6 characters" />
-        </div>
-        <button className="btn btn-primary btn-full" onClick={changePassword} disabled={saving}>
-          {saving ? 'Updating...' : 'Update Password'}
+        <div className="card-title">Your Data</div>
+        <p style={{ color: 'var(--text-muted)', fontSize: 13, margin: '0 0 12px' }}>
+          All data is stored locally on this device using IndexedDB. Nothing is sent to any server.
+        </p>
+        <button className="btn btn-secondary btn-full" onClick={exportData} style={{ marginBottom: 8 }}>
+          📦 Export All Data (JSON)
         </button>
-      </div>
-
-      {/* Account Info */}
-      <div className="card">
-        <div className="card-title">Account</div>
-        <div className="account-info-row">
-          <span className="account-info-label">Member since</span>
-          <span>{user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}</span>
-        </div>
-        <div className="account-info-row">
-          <span className="account-info-label">User ID</span>
-          <span>#{user?.id}</span>
-        </div>
-        <button className="btn btn-full" onClick={onLogout} style={{ marginTop: 12, background: 'var(--border-light)', color: 'var(--text-primary)' }}>
-          Log Out
+        <button className="btn btn-full" onClick={onLogout} style={{ background: 'var(--border-light)', color: 'var(--text-primary)' }}>
+          🚪 Log Out
         </button>
       </div>
 
       {/* Danger Zone */}
       <div className="card account-danger">
         <div className="card-title">Danger Zone</div>
-        <p className="account-danger-text">Permanently delete your account and all data. This cannot be undone.</p>
-        {!showDeleteConfirm ? (
-          <button className="btn btn-full account-delete-btn" onClick={() => setShowDeleteConfirm(true)}>
-            Delete Account
+        <p className="account-danger-text">Permanently delete all local data. This cannot be undone.</p>
+        {!showResetConfirm ? (
+          <button className="btn btn-full account-delete-btn" onClick={() => setShowResetConfirm(true)}>
+            Reset All Data
           </button>
         ) : (
           <div className="account-delete-confirm">
-            <input className="input" type="password" value={deletePassword} onChange={(e) => setDeletePassword(e.target.value)} placeholder="Enter password to confirm" />
+            <p style={{ color: '#e74c3c', fontSize: 13, margin: '0 0 8px' }}>Are you sure? This will delete all your food logs, habits, weight history, and chat messages.</p>
             <div className="account-delete-actions">
-              <button className="btn btn-full account-delete-btn" onClick={deleteAccount} disabled={saving}>
-                {saving ? 'Deleting...' : 'Confirm Delete'}
+              <button className="btn btn-full account-delete-btn" onClick={resetAllData} disabled={saving}>
+                {saving ? 'Deleting...' : 'Yes, Reset Everything'}
               </button>
-              <button className="btn btn-full" onClick={() => { setShowDeleteConfirm(false); setDeletePassword(''); }} style={{ background: 'var(--border-light)', color: 'var(--text-primary)' }}>
+              <button className="btn btn-full" onClick={() => setShowResetConfirm(false)} style={{ background: 'var(--border-light)', color: 'var(--text-primary)' }}>
                 Cancel
               </button>
             </div>

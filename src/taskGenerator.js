@@ -223,3 +223,210 @@ export function currentPeriodKeys() {
     monthly: monthKey(now),
   };
 }
+
+// ── Coach-assigned tasks: topic-aware pools ──
+// When the user asks the coach for a task, we pick from curated pools
+// that match what they actually asked about — not extract fragments
+// from long-form advice paragraphs.
+
+const COACH_TASKS = {
+  lose_weight: [
+    'Eat in a 400-calorie deficit today',
+    'Walk 10,000 steps today',
+    'Drink 8 glasses of water',
+    'Skip sugary drinks today',
+    'Eat protein at every meal today',
+    'Fill half your plate with vegetables at each meal',
+    'Track every meal today',
+    'Take a 30-minute brisk walk',
+    'Do a 20-minute HIIT session',
+    'Replace one processed snack with fruit',
+    'Eat a high-protein breakfast within an hour of waking',
+    'No eating after 8pm tonight',
+    'Cook a healthy meal at home instead of ordering out',
+    'Do 15 minutes of bodyweight exercises',
+    'Take the stairs all day instead of the elevator',
+  ],
+  gain_muscle: [
+    'Hit your protein target today (1g per lb bodyweight)',
+    'Eat 300+ calories above maintenance today',
+    'Do a strength training session (compound lifts)',
+    'Drink a protein shake after your workout',
+    'Eat 5 meals today — 3 main + 2 snacks',
+    'Do progressive overload on one exercise today',
+    'Eat a calorie-dense snack (nuts, PB, avocado)',
+    'Sleep 8+ hours tonight for recovery',
+    'Do 3 sets of squats, bench press, and rows',
+    'Add extra rice or pasta to one meal',
+    'Eat at least 4 eggs today',
+    'Stretch for 10 minutes after training',
+    'Track your lifts and aim to beat last session',
+    'Drink a mass gainer smoothie today',
+    'Have a pre-bed snack (cottage cheese or casein shake)',
+  ],
+  workout: [
+    'Complete a full-body workout today',
+    'Do 3 sets of push-ups, squats, and planks',
+    'Go for a 30-minute jog or run',
+    'Do a 20-minute HIIT workout',
+    'Complete a stretching or yoga session',
+    'Do 100 bodyweight squats throughout the day',
+    'Hit the gym for at least 45 minutes',
+    'Do 5 sets of pull-ups or inverted rows',
+    'Complete a 15-minute core workout',
+    'Walk or bike instead of driving today',
+    'Do a push/pull/legs workout',
+    'Try a new exercise you haven\'t done before',
+    'Do 10 minutes of mobility work before training',
+    'Complete 3 sets of deadlifts or RDLs',
+    'Exercise for at least 30 minutes today',
+  ],
+  meal_ideas: [
+    'Meal prep lunch for the next 3 days',
+    'Cook a high-protein dinner at home tonight',
+    'Make overnight oats for tomorrow\'s breakfast',
+    'Prepare a big batch of grilled chicken and veggies',
+    'Try a new healthy recipe today',
+    'Make a protein smoothie for breakfast',
+    'Prep healthy snacks for the week (cut veggies, boil eggs)',
+    'Cook a sheet-pan meal with protein and vegetables',
+    'Pack a balanced lunch instead of eating out',
+    'Make a big salad with at least 30g of protein',
+    'Eat at least 3 different colors of vegetables today',
+    'Replace one meal with a healthier homemade version',
+  ],
+  protein: [
+    'Eat at least 30g of protein at every meal today',
+    'Have a protein-rich snack between meals (Greek yogurt, eggs)',
+    'Track your protein intake — aim for your bodyweight in grams',
+    'Swap regular yogurt for Greek yogurt today',
+    'Eat a protein source within 2 hours of training',
+    'Add eggs or egg whites to one meal today',
+    'Have chicken, fish, or tofu as your main protein at dinner',
+  ],
+  sleep: [
+    'Get 7+ hours of sleep tonight',
+    'No screens 30 minutes before bed',
+    'Set a consistent bedtime and stick to it tonight',
+    'Do 5 minutes of deep breathing before bed',
+    'Avoid caffeine after 2pm today',
+    'Keep your bedroom cool and dark tonight',
+    'Wind down with light stretching before sleep',
+  ],
+  water: [
+    'Drink 8 glasses (64 oz) of water today',
+    'Drink a glass of water before every meal',
+    'Carry a water bottle everywhere today',
+    'Replace one sugary drink with water',
+    'Drink a full glass of water right now',
+    'Finish 1 liter of water before lunch',
+  ],
+  cardio: [
+    'Do 30 minutes of cardio today',
+    'Go for a brisk 20-minute walk',
+    'Do a 15-minute jump rope session',
+    'Take a 45-minute bike ride or use the stationary bike',
+    'Run or jog for 20 minutes',
+    'Do 20 minutes of stair climbing',
+    'Walk 8,000+ steps today',
+  ],
+  habits: [
+    'Track every meal today without skipping',
+    'Take a 10-minute walk after each meal',
+    'Eat mindfully — no screens during meals today',
+    'Prep tomorrow\'s meals tonight before bed',
+    'Weigh yourself first thing tomorrow morning',
+    'Write down 3 things you did well today',
+    'Set a reminder to drink water every hour',
+    'Go to bed 30 minutes earlier than usual',
+    'Stand up and move for 5 minutes every hour',
+    'Replace one unhealthy habit with a healthy one today',
+  ],
+  supplements: [
+    'Take your creatine (5g) today',
+    'Drink a protein shake today',
+    'Take your multivitamin with breakfast',
+    'Have a serving of fish oil or omega-3s today',
+    'Make sure to take your vitamin D supplement',
+  ],
+  motivation: [
+    'Complete your workout even if you only have 15 minutes',
+    'Do something active for at least 10 minutes right now',
+    'Hit all your nutrition targets today — no excuses',
+    'Share your progress with a friend or accountability partner',
+    'Complete every task on your list today',
+    'Do one thing today that your future self will thank you for',
+    'No skipping — show up and do something, even if small',
+  ],
+  stress: [
+    'Do 10 minutes of meditation or deep breathing',
+    'Take a 20-minute walk outside in nature',
+    'Do a gentle yoga or stretching session',
+    'Journal for 5 minutes about how you\'re feeling',
+    'Limit social media to 30 minutes today',
+    'Practice box breathing (4-4-4-4) for 5 rounds',
+    'Take a tech-free break for at least 1 hour',
+  ],
+};
+
+// Map user message patterns → which task pool(s) to draw from
+const TASK_INTENT_MAP = [
+  { patterns: [/lose\s*weight/i, /fat\s*loss/i, /burn.*fat/i, /cut(ting)?/i, /lean/i, /slim/i, /shred/i, /deficit/i], pool: 'lose_weight' },
+  { patterns: [/gain.*muscle/i, /bulk/i, /build\s*muscle/i, /get\s*(bigger|stronger|jacked)/i, /mass\s*gain/i, /hypertrophy/i], pool: 'gain_muscle' },
+  { patterns: [/workout/i, /exercise/i, /training/i, /gym/i, /lift/i, /routine/i, /strength/i, /resistance/i], pool: 'workout' },
+  { patterns: [/meal/i, /cook/i, /recipe/i, /food/i, /eat(ing)?/i, /nutrition/i, /diet/i, /prep/i, /breakfast/i, /lunch/i, /dinner/i, /snack/i], pool: 'meal_ideas' },
+  { patterns: [/protein/i], pool: 'protein' },
+  { patterns: [/sleep/i, /rest/i, /recovery/i, /tired/i, /insomnia/i, /bed/i], pool: 'sleep' },
+  { patterns: [/water/i, /hydrat/i, /drink/i, /thirst/i], pool: 'water' },
+  { patterns: [/cardio/i, /run(ning)?/i, /jog/i, /walk/i, /step/i, /endurance/i, /aerobic/i], pool: 'cardio' },
+  { patterns: [/habit/i, /routine/i, /consistent/i, /discipline/i, /daily/i, /track/i], pool: 'habits' },
+  { patterns: [/supplement/i, /creatine/i, /vitamin/i, /omega/i, /fish\s*oil/i], pool: 'supplements' },
+  { patterns: [/motivat/i, /lazy/i, /can'?t\s*(do|start)/i, /no\s*energy/i, /give\s*up/i, /stuck/i, /push/i, /discipline/i], pool: 'motivation' },
+  { patterns: [/stress/i, /anxi/i, /overwhelm/i, /mental/i, /relax/i, /calm/i, /mindful/i, /meditat/i], pool: 'stress' },
+];
+
+/**
+ * Pick a sensible, actionable task based on what the user asked the coach about.
+ * Falls back to goal-type daily tasks if no topic match.
+ * Avoids duplicating tasks already in the user's task list.
+ *
+ * @param {string} userText - What the user said to the coach
+ * @param {string} goalType - 'lose' | 'gain' | 'maintain'
+ * @param {string[]} existingTitles - Titles of tasks already on the list
+ * @returns {string} A clean, actionable task title
+ */
+export function pickCoachTask(userText, goalType, existingTitles = []) {
+  const existing = new Set(existingTitles.map(t => t.toLowerCase()));
+
+  // Find matching topic pools based on what the user said
+  const matchedPools = [];
+  for (const entry of TASK_INTENT_MAP) {
+    if (entry.patterns.some(p => p.test(userText))) {
+      matchedPools.push(entry.pool);
+    }
+  }
+
+  // Build candidate list: matched topic pools first, then goal-type fallback
+  let candidates = [];
+  for (const poolKey of matchedPools) {
+    candidates.push(...(COACH_TASKS[poolKey] || []));
+  }
+
+  // If no topic match or very few candidates, add goal-type tasks
+  if (candidates.length < 5) {
+    const goalPool = goalType === 'gain'
+      ? [...(COACH_TASKS.gain_muscle || []), ...(DAILY_TASKS.gain || [])]
+      : goalType === 'lose'
+        ? [...(COACH_TASKS.lose_weight || []), ...(DAILY_TASKS.lose || [])]
+        : [...(COACH_TASKS.habits || []), ...(DAILY_TASKS.maintain || [])];
+    candidates.push(...goalPool);
+  }
+
+  // Filter out tasks already on the list
+  const available = candidates.filter(t => !existing.has(t.toLowerCase()));
+
+  // If everything is taken, just use full candidate list
+  const pool = available.length > 0 ? available : candidates;
+
+  return pool[Math.floor(Math.random() * pool.length)];
+}

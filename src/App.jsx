@@ -7,7 +7,7 @@ import LandingPage from './LandingPage';
 import AccountScreen from './AccountScreen';
 import * as db from './db.js';
 import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
-import { generateTasks, currentPeriodKeys } from './taskGenerator.js';
+import { generateTasks, currentPeriodKeys, pickCoachTask } from './taskGenerator.js';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 import { fetchCategoryVideos, searchCachedVideos, VIDEO_CATEGORIES } from './youtubeRSS.js';
@@ -690,39 +690,65 @@ function App() {
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
       if (askPatterns.test(q)) {
-        // Extract a meaningful, full-sentence task from the AI response
+        // Extract a meaningful, actionable task from the AI response
         let taskTitle = '';
+        const actionVerbRe = /^(try|aim|focus|start|drink|eat|walk|do|track|log|get|take|make|go|plan|add|avoid|replace|prepare|complete|stretch|hit|run|swim|limit|cut|skip|cook|practice|sleep|spend|work|perform|set|squat|bench|deadlift)/i;
+        // Reject sentences that are clearly conversational filler, not tasks
+        const fillerRe = /^(here|i('d| would| can| recommend| suggest)|that'?s|sure|okay|great|absolutely|of course|no problem|happy|glad|let me|you (can|should|could|might|may)|it'?s|the (best|key|most|first))/i;
 
-        // Strategy 1: If response lists items after a colon, pick one
+        // Split the whole response into clean sentences
+        const allSentences = answer
+          .replace(/\n+/g, ' ')
+          .split(/(?<=[.!?])\s+/)
+          .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
+          .filter(s => s.length > 10 && s.length < 100);
+
+        // Strategy 1: If response lists items after a colon, pick one that looks actionable
         const colonIdx = answer.indexOf(':');
         if (colonIdx !== -1 && colonIdx < answer.length - 10) {
-          const afterColon = answer.slice(colonIdx + 1).split(/[.!]/)[0];
+          const afterColon = answer.slice(colonIdx + 1).split(/[.!?]/)[0];
           const items = afterColon.split(',')
-            .map(s => s.trim())
+            .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
             .filter(s => s.length > 10 && s.length < 80)
-            .map(s => s.replace(/^(and|or)\s+/i, '').trim());
+            .map(s => s.replace(/^(and|or)\s+/i, '').trim())
+            .filter(s => actionVerbRe.test(s) || !fillerRe.test(s));
           if (items.length > 0) {
             taskTitle = items[Math.floor(Math.random() * Math.min(items.length, 4))];
           }
         }
 
-        // Strategy 2: Find a sentence starting with an action verb
+        // Strategy 2: Find ANY sentence in the response starting with an action verb
         if (!taskTitle) {
-          const sentences = answer.split(/(?<=[.!])\s+/).map(s => s.trim()).filter(s => s.length > 15 && s.length < 100);
-          const actionSentence = sentences.find(s =>
-            /^(try|aim|focus|start|drink|eat|walk|do|track|log|get|take|make|go|plan|add|avoid|replace|prepare|complete|stretch|hit)/i.test(s)
-          );
-          if (actionSentence) taskTitle = actionSentence.replace(/[.!]+$/, '');
+          const actionSentences = allSentences.filter(s => actionVerbRe.test(s));
+          if (actionSentences.length > 0) {
+            taskTitle = actionSentences[Math.floor(Math.random() * Math.min(actionSentences.length, 3))].replace(/[.!?]+$/, '');
+          }
         }
 
-        // Strategy 3: Take the first full sentence
+        // Strategy 3: Find a sentence that at least contains an action verb (not just starts with one)
         if (!taskTitle) {
-          const firstSentence = answer.match(/^[^.!]+[.!]/);
-          taskTitle = firstSentence ? firstSentence[0].replace(/[.!]+$/, '') : answer.slice(0, 60);
+          const containsAction = allSentences.filter(s =>
+            !fillerRe.test(s) && /\b(try|drink|eat|walk|do|track|log|take|make|go|plan|add|avoid|prepare|complete|stretch|run|swim|cook|sleep|workout|exercise)\b/i.test(s)
+          );
+          if (containsAction.length > 0) {
+            taskTitle = containsAction[0].replace(/[.!?]+$/, '');
+          }
+        }
+
+        // Strategy 4: Goal-appropriate fallback instead of grabbing random first sentence
+        if (!taskTitle) {
+          const fallbacks = {
+            lose: ['Take a 30-minute walk today', 'Track all your meals today', 'Drink 8 glasses of water', 'Do a 15-minute bodyweight workout', 'Skip sugary drinks today'],
+            gain: ['Do a strength training session', 'Eat 5 meals today', 'Drink a protein shake', 'Hit your protein goal today', 'Do compound lifts today'],
+            maintain: ['Do 20 minutes of exercise', 'Eat a balanced meal', 'Take a 30-minute walk', 'Track all meals today', 'Drink 8 glasses of water'],
+          };
+          const goal = user?.goalType || 'maintain';
+          const pool = fallbacks[goal] || fallbacks.maintain;
+          taskTitle = pool[Math.floor(Math.random() * pool.length)];
         }
 
         // Clean up filler prefixes and capitalize
-        taskTitle = taskTitle.replace(/^(sure!?\s*|here'?s?\s*|okay!?\s*|great[^a-z]*|i suggest\s*|try this:?\s*|focus on:?\s*)/i, '').trim();
+        taskTitle = taskTitle.replace(/^(sure!?\s*|here'?s?\s*|okay!?\s*|great[^a-z]*|i suggest\s*|try this:?\s*|focus on:?\s*|you should\s*|i('d)? recommend\s*(that\s*you\s*)?)/i, '').trim();
         taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
         if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
         try {

@@ -553,13 +553,12 @@ function App() {
           color: r.calories <= 100 ? 'green' : r.calories <= 300 ? 'yellow' : 'red',
         }));
 
-      // Include RSS recipe feed suggestions
+      // Fetch ALL RSS recipes and interleave throughout
       let rssSuggestions = [];
       try {
         const rssRecipes = await fetchRecipeFeeds();
         rssSuggestions = rssRecipes
           .sort(() => Math.random() - 0.5)
-          .slice(0, 3)
           .map((r) => ({
             name: `🔗 ${r.title}`,
             calories: 0,
@@ -575,10 +574,17 @@ function App() {
           }));
       } catch { /* ignore */ }
 
-      // Merge: saved recipes → RSS recipes → FDC foods (cap at 6)
-      const merged = [...savedSuggestions, ...rssSuggestions, ...foodSuggestions].slice(0, 6);
-      setMealSuggestions(merged);
-      try { sessionStorage.setItem('ff_suggestions', JSON.stringify(merged)); } catch { /* ignore */ }
+      // Interleave: alternate RSS recipes with FDC foods, saved recipes up front
+      const interleaved = [...savedSuggestions];
+      const rssPool = [...rssSuggestions];
+      const fdcPool = [...foodSuggestions];
+      while (interleaved.length < 8 && (rssPool.length || fdcPool.length)) {
+        if (rssPool.length) interleaved.push(rssPool.shift());
+        if (interleaved.length < 8 && fdcPool.length) interleaved.push(fdcPool.shift());
+      }
+
+      setMealSuggestions(interleaved);
+      try { sessionStorage.setItem('ff_suggestions', JSON.stringify(interleaved)); } catch { /* ignore */ }
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };

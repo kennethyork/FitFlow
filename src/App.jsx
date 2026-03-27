@@ -242,7 +242,7 @@ function App() {
           const freshUser = await meRes.json();
           localStorage.setItem('user', JSON.stringify(freshUser));
           setUser(freshUser);
-          if (!freshUser.onboarded) { setLoading(false); return; }
+          if (!freshUser.onboarded) { setShowOnboarding(true); setLoading(false); return; }
         }
 
         const [logsRes, habitsRes, playlistRes, mealsRes] = await Promise.all([
@@ -309,7 +309,7 @@ function App() {
     setFoodSearchQuery(query);
     if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); return; }
     try {
-      const res = await fetch(`/api/food/search?q=${encodeURIComponent(query.trim())}`);
+      const res = await fetch(apiUrl(`/api/food/search?q=${encodeURIComponent(query.trim())}`));
       const data = await res.json();
       setFoodSearchResults(data.results || []);
       setShowFoodSearch(true);
@@ -374,7 +374,7 @@ function App() {
 
   const deleteProgressPhoto = async (id) => {
     hapticWarning();
-    await fetch(`/api/progress-photos/${id}`, { method: 'DELETE', headers: authHeaders });
+    await fetch(apiUrl(`/api/progress-photos/${id}`), { method: 'DELETE', headers: authHeaders });
     setProgressPhotos(prev => prev.filter(p => p.id !== id));
   };
 
@@ -502,7 +502,7 @@ function App() {
   };
 
   const deleteLog = async (id) => {
-    await fetch(`/api/food/logs/${id}`, { method: 'DELETE', headers: authHeaders });
+    await fetch(apiUrl(`/api/food/logs/${id}`), { method: 'DELETE', headers: authHeaders });
     setLogs((prev) => prev.filter((l) => l.id !== id));
     setConfirmDelete(null);
   };
@@ -517,7 +517,7 @@ function App() {
   };
 
   const saveEditLog = async (id) => {
-    const res = await fetch(`/api/food/logs/${id}`, {
+    const res = await fetch(apiUrl(`/api/food/logs/${id}`), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...authHeaders },
       body: JSON.stringify({
@@ -558,7 +558,7 @@ function App() {
 
   const deleteFavorite = async (id) => {
     try {
-      await fetch(`/api/food/favorites/${id}`, { method: 'DELETE', headers: authHeaders });
+      await fetch(apiUrl(`/api/food/favorites/${id}`), { method: 'DELETE', headers: authHeaders });
       setFavoriteMeals(prev => prev.filter(f => f.id !== id));
     } catch { /* ignore */ }
   };
@@ -576,7 +576,7 @@ function App() {
     setMealSuggestions([]);
     const remaining = Math.max(0, calGoal - totalCals);
     try {
-      const res = await fetch(`/api/food/suggest?remaining=${remaining}&goal=${user?.goalType || 'lose'}`, { headers: authHeaders });
+      const res = await fetch(apiUrl(`/api/food/suggest?remaining=${remaining}&goal=${user?.goalType || 'lose'}`), { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();
         setMealSuggestions(data);
@@ -616,7 +616,7 @@ function App() {
     setBarcodeScanning(true);
     setBarcodeResult(null);
     try {
-      const res = await fetch(`/api/food/barcode/${encodeURIComponent(barcodeInput.trim())}`, { headers: authHeaders });
+      const res = await fetch(apiUrl(`/api/food/barcode/${encodeURIComponent(barcodeInput.trim())}`), { headers: authHeaders });
       if (res.ok) {
         setBarcodeResult(await res.json());
       } else {
@@ -750,14 +750,14 @@ function App() {
   };
 
   const toggleHabit = async (id) => {
-    const res = await fetch(`/api/habits/${id}/toggle`, { method: 'PUT', headers: authHeaders });
+    const res = await fetch(apiUrl(`/api/habits/${id}/toggle`), { method: 'PUT', headers: authHeaders });
     const updated = await res.json();
     if (updated.completed) hapticSuccess(); else hapticTap();
     setHabits((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
   };
 
   const deleteHabit = async (id) => {
-    const res = await fetch(`/api/habits/${id}`, { method: 'DELETE', headers: authHeaders });
+    const res = await fetch(apiUrl(`/api/habits/${id}`), { method: 'DELETE', headers: authHeaders });
     if (res.ok) setHabits((prev) => prev.filter((h) => h.id !== id));
   };
 
@@ -783,8 +783,8 @@ function App() {
     setBrowseLoading(true);
     try {
       const url = query
-        ? `/api/videos/browse?q=${encodeURIComponent(query)}`
-        : `/api/videos/browse?tab=${encodeURIComponent(tabId || activeVideoTab)}`;
+        ? apiUrl(`/api/videos/browse?q=${encodeURIComponent(query)}`)
+        : apiUrl(`/api/videos/browse?tab=${encodeURIComponent(tabId || activeVideoTab)}`);
       const res = await fetch(url, { headers: authHeaders });
       if (res.ok) {
         const data = await res.json();

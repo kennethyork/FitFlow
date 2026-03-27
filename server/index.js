@@ -262,7 +262,7 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
     if (paypalConfigured && PAYPAL_PRICES[tier]) {
       const appUrl = process.env.APP_URL || 'http://localhost:5173';
       const accessToken = await getPayPalAccessToken();
-      const res = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+      const ppRes = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -280,8 +280,8 @@ app.put('/api/auth/upgrade', auth, async (req, res) => {
           },
         }),
       });
-      const order = await res.json();
-      if (!res.ok) return res.status(500).json({ error: 'PayPal order creation failed' });
+      const order = await ppRes.json();
+      if (!ppRes.ok) return res.status(500).json({ error: 'PayPal order creation failed' });
       const approvalLink = order.links?.find(l => l.rel === 'approve');
       if (approvalLink) {
         return res.json({ checkoutUrl: approvalLink.href, paypalOrderId: order.id });

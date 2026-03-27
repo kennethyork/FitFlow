@@ -108,7 +108,9 @@ const PAYPAL_BASE = process.env.PAYPAL_MODE === 'live'
   : 'https://api-m.sandbox.paypal.com';
 
 async function getPayPalAccessToken() {
-  const auth = Buffer.from(`${process.env.PAYPAL_CLIENT_ID}:${process.env.PAYPAL_CLIENT_SECRET}`).toString('base64');
+  const clientId = (process.env.PAYPAL_CLIENT_ID || '').trim();
+  const clientSecret = (process.env.PAYPAL_CLIENT_SECRET || '').trim();
+  const auth = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
   const res = await fetch(`${PAYPAL_BASE}/v1/oauth2/token`, {
     method: 'POST',
     headers: { 'Authorization': `Basic ${auth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -247,35 +249,38 @@ app.post('/api/auth/signup', async (req, res) => {
 
     // If paid tier selected and PayPal is configured, create a PayPal order
     if (chosenTier !== 'free' && paypalConfigured && PAYPAL_PRICES[chosenTier]) {
-      const appUrl = process.env.APP_URL || 'http://localhost:5173';
-      const accessToken = await getPayPalAccessToken();
-      const ppRes = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          intent: 'CAPTURE',
-          purchase_units: [{
-            amount: { currency_code: 'USD', value: PAYPAL_PRICES[chosenTier].toFixed(2) },
-            description: PAYPAL_PLAN_NAMES[chosenTier],
-            custom_id: JSON.stringify({ userId: user.id, tier: chosenTier }),
-          }],
-          application_context: {
-            brand_name: 'FitFlow',
-            return_url: `${appUrl}/?paypal_capture=pending&tier=${chosenTier}`,
-            cancel_url: `${appUrl}/?cancelled=true`,
-            user_action: 'PAY_NOW',
-          },
-        }),
-      });
-      const order = await ppRes.json();
-      if (ppRes.ok) {
-        const approvalLink = order.links?.find(l => l.rel === 'approve');
-        if (approvalLink) {
-          return res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: 'free', onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: true }, checkoutUrl: approvalLink.href });
+      try {
+        const appUrl = process.env.APP_URL || 'http://localhost:5173';
+        const accessToken = await getPayPalAccessToken();
+        const ppRes = await fetch(`${PAYPAL_BASE}/v2/checkout/orders`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            intent: 'CAPTURE',
+            purchase_units: [{
+              amount: { currency_code: 'USD', value: PAYPAL_PRICES[chosenTier].toFixed(2) },
+              description: PAYPAL_PLAN_NAMES[chosenTier],
+              custom_id: JSON.stringify({ userId: user.id, tier: chosenTier }),
+            }],
+            application_context: {
+              brand_name: 'FitFlow',
+              return_url: `${appUrl}/?paypal_capture=pending&tier=${chosenTier}`,
+              cancel_url: `${appUrl}/?cancelled=true`,
+              user_action: 'PAY_NOW',
+            },
+          }),
+        });
+        const order = await ppRes.json();
+        if (ppRes.ok) {
+          const approvalLink = order.links?.find(l => l.rel === 'approve');
+          if (approvalLink) {
+            return res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: 'free', onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: true }, checkoutUrl: approvalLink.href });
+          }
         }
+        console.error('PayPal order failed during signup, continuing on free tier');
+      } catch (ppErr) {
+        console.error('PayPal error during signup, continuing on free tier:', ppErr.message);
       }
-      // PayPal failed — still return account on free tier
-      console.error('PayPal order failed during signup, continuing on free tier');
     }
 
     res.status(201).json({ token, user: { id: user.id, email: user.email, name: user.name, tier: user.tier, onboarded: user.onboarded, calorieGoal: user.calorieGoal, emailVerified: true } });

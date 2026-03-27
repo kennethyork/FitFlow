@@ -24,7 +24,11 @@ const CACHE_TTL = 30 * 60 * 1000;
 
 function stripHtml(html) {
   if (!html) return '';
-  return html.replace(/<[^>]*>/g, '').replace(/&[a-z]+;/gi, ' ').replace(/\s+/g, ' ').trim();
+  // Remove tags, then decode all HTML entities via textarea trick
+  const stripped = html.replace(/<[^>]*>/g, '');
+  const ta = document.createElement('textarea');
+  ta.innerHTML = stripped;
+  return ta.value.replace(/\s+/g, ' ').trim();
 }
 
 function extractImage(item) {

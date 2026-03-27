@@ -89,7 +89,9 @@ function App() {
   const [chatHistory, setChatHistory] = useState([]);
   const [coachTyping, setCoachTyping] = useState(false);
   const { coachName, chat: aiChat } = useCoachAI(user?.id || 'local');
-  const [mealSuggestions, setMealSuggestions] = useState([]);
+  const [mealSuggestions, setMealSuggestions] = useState(() => {
+    try { return JSON.parse(sessionStorage.getItem('ff_suggestions') || '[]'); } catch { return []; }
+  });
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
 
   const [habits, setHabits] = useState([]);
@@ -576,6 +578,7 @@ function App() {
       // Merge: saved recipes → RSS recipes → FDC foods (cap at 6)
       const merged = [...savedSuggestions, ...rssSuggestions, ...foodSuggestions].slice(0, 6);
       setMealSuggestions(merged);
+      try { sessionStorage.setItem('ff_suggestions', JSON.stringify(merged)); } catch { /* ignore */ }
     } catch { /* ignore */ }
     setSuggestionsLoading(false);
   };

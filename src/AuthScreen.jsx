@@ -5,6 +5,7 @@ export default function AuthScreen({ onAuth }) {
   const [mode, setMode] = useState('login'); // login | signup
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [name, setName] = useState('');
   const [selectedPlan, setSelectedPlan] = useState('free');
   const [error, setError] = useState('');
@@ -38,6 +39,10 @@ export default function AuthScreen({ onAuth }) {
     e.preventDefault();
     setError('');
     setSuccess('');
+    if (mode === 'signup' && password !== confirmPassword) {
+      setError('Passwords do not match');
+      return;
+    }
     setLoading(true);
     try {
       const endpoint = mode === 'login' ? apiUrl('/api/auth/login') : apiUrl('/api/auth/signup');
@@ -118,6 +123,18 @@ export default function AuthScreen({ onAuth }) {
             minLength={6}
             autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
           />
+          {mode === 'signup' && (
+            <input
+              className="input"
+              type="password"
+              placeholder="Confirm password"
+              value={confirmPassword}
+              onChange={(e) => setConfirmPassword(e.target.value)}
+              required
+              minLength={6}
+              autoComplete="new-password"
+            />
+          )}
           {mode === 'signup' && captcha && (
             <div className="captcha-box">
               <label className="captcha-label">🤖 Prove you're human</label>

@@ -103,7 +103,8 @@ app.get('/api/auth/captcha', (req, res) => {
 });
 
 // ── PayPal setup (direct REST API — no SDK needed) ──
-const PAYPAL_BASE = process.env.PAYPAL_MODE === 'live'
+const PAYPAL_MODE = (process.env.PAYPAL_MODE || '').trim();
+const PAYPAL_BASE = PAYPAL_MODE === 'live'
   ? 'https://api-m.paypal.com'
   : 'https://api-m.sandbox.paypal.com';
 
@@ -122,7 +123,7 @@ async function getPayPalAccessToken() {
 }
 
 const paypalConfigured = !!(process.env.PAYPAL_CLIENT_ID && process.env.PAYPAL_CLIENT_SECRET);
-if (paypalConfigured) console.log(`PayPal configured (${process.env.PAYPAL_MODE === 'live' ? 'live' : 'sandbox'})`);
+if (paypalConfigured) console.log(`PayPal configured (${PAYPAL_MODE === 'live' ? 'live' : 'sandbox'}) → ${PAYPAL_BASE}`);
 
 const PAYPAL_PRICES = {
   pro: 4.99,
@@ -175,6 +176,17 @@ app.get('/api/debug/db', async (req, res) => {
     res.json({ ok: true, userCount: cnt, dbType: process.env.D1_DATABASE_ID ? 'd1' : 'sqlite' });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message, stack: err.stack?.split('\n').slice(0, 5) });
+  }
+});
+
+// Debug: test PayPal connectivity
+app.get('/api/debug/paypal', async (req, res) => {
+  try {
+    if (!paypalConfigured) return res.json({ ok: false, error: 'PayPal not configured' });
+    const accessToken = await getPayPalAccessToken();
+    res.json({ ok: true, mode: PAYPAL_MODE, base: PAYPAL_BASE, tokenPrefix: accessToken.slice(0, 10) + '...' });
+  } catch (err) {
+    res.json({ ok: false, mode: PAYPAL_MODE, base: PAYPAL_BASE, error: err.message });
   }
 });
 

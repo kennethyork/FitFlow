@@ -262,17 +262,18 @@ function App() {
         setUser(profile);
         if (!profile.onboarded) { setShowOnboarding(true); setLoading(false); return; }
 
-        // Load all data in parallel
+        // Load all data in parallel (each wrapped so one failure doesn't block the rest)
+        const safe = (fn, fallback) => fn().catch((e) => { console.warn('DB load fallback:', e); return fallback; });
         const [logsData, habitsData, weightData, waterData, stepsData, chatData, favsData, streaksData, weeklyData] = await Promise.all([
-          db.getFoodLogs(),
-          db.getHabits(),
-          db.getWeightLogs(),
-          db.getWaterToday(),
-          db.getStepsToday(),
-          db.getChatMessages(),
-          db.getFavoriteMeals(),
-          db.getStreaks(),
-          db.getWeeklySummary(),
+          safe(() => db.getFoodLogs(), []),
+          safe(() => db.getHabits(), []),
+          safe(() => db.getWeightLogs(), []),
+          safe(() => db.getWaterToday(), 0),
+          safe(() => db.getStepsToday(), 0),
+          safe(() => db.getChatMessages(), []),
+          safe(() => db.getFavoriteMeals(), []),
+          safe(() => db.getStreaks(), {}),
+          safe(() => db.getWeeklySummary(), null),
         ]);
 
         setLogs(logsData);
@@ -286,7 +287,19 @@ function App() {
         setWeeklySummary(weeklyData);
 
         // Generate/refresh daily, weekly, monthly tasks
-        refreshAutoTasks(profile, habitsData).catch(console.error);
+        refreshAutoTasks(profile, habitsData).catch((err) => {
+          console.error('refreshAutoTasks failed:', err);
+          // Fallback: generate tasks locally and show them even if DB insert fails
+          if (habitsData.length === 0) {
+            const { daily, weekly, monthly } = generateTasks(profile);
+            const fallback = [
+              ...daily.map((t, i) => ({ id: `fb-d${i}`, title: t, completed: false, source: 'daily' })),
+              ...weekly.map((t, i) => ({ id: `fb-w${i}`, title: t, completed: false, source: 'weekly' })),
+              ...monthly.map((t, i) => ({ id: `fb-m${i}`, title: t, completed: false, source: 'monthly' })),
+            ];
+            setHabits(fallback);
+          }
+        });
 
         // Load food reference database in background
         loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);

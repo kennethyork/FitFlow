@@ -188,7 +188,25 @@ async function initDB() {
     multiInstance: false,
     closeDuplicates: true,
   });
-  await db.addCollections(collections);
+  try {
+    await db.addCollections(collections);
+  } catch (err) {
+    console.error('addCollections failed, retrying without migration:', err);
+    // If migration fails, destroy and recreate DB fresh
+    await db.destroy();
+    // Remove the old Dexie database so we start clean
+    const delReq = indexedDB.deleteDatabase('fitflow2');
+    await new Promise((res, rej) => { delReq.onsuccess = res; delReq.onerror = rej; });
+    const db2 = await createRxDatabase({
+      name: 'fitflow2',
+      storage: getRxStorageDexie(),
+      multiInstance: false,
+      closeDuplicates: true,
+    });
+    await db2.addCollections(collections);
+    console.warn = _warn;
+    return db2;
+  }
   console.warn = _warn;
   return db;
 }

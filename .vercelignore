@@ -1,8 +1,0 @@
-node_modules
-mobile
-src
-public
-index.html
-*.config.js
-*.config.ts
-.git

@@ -162,6 +162,25 @@ function App() {
     const saved = await db.saveProfile({ ...profileData, onboarded: true });
     setUser(saved);
     setShowOnboarding(false);
+
+    // Seed initial tasks since the init useEffect returned early before onboarding
+    const { daily, weekly, monthly } = generateTasks(saved);
+    const seeded = [];
+    for (const t of daily) { try { seeded.push(await db.addHabit({ title: t, source: 'daily' })); } catch {} }
+    for (const t of weekly) { try { seeded.push(await db.addHabit({ title: t, source: 'weekly' })); } catch {} }
+    for (const t of monthly) { try { seeded.push(await db.addHabit({ title: t, source: 'monthly' })); } catch {} }
+    setHabits(seeded.length > 0 ? seeded : [
+      ...daily.map((t, i) => ({ id: `fb-d${i}`, title: t, completed: false, source: 'daily' })),
+      ...weekly.map((t, i) => ({ id: `fb-w${i}`, title: t, completed: false, source: 'weekly' })),
+      ...monthly.map((t, i) => ({ id: `fb-m${i}`, title: t, completed: false, source: 'monthly' })),
+    ]);
+    await db.setSetting('ff_taskPeriods', currentPeriodKeys());
+
+    // Load food DB + RSS in background
+    loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
+    fetchRecipeFeeds().then((rssRecipes) => {
+      setDailyMeals(pickDailyMeals(rssRecipes));
+    }).catch(console.error);
   };
 
   const handleLogout = async () => {

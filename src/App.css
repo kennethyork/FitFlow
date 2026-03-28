@@ -1676,6 +1676,26 @@ input[type="number"] { -moz-appearance: textfield; }
 .landing-cta:active {
   transform: translateY(0);
 }
+.landing-cta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  justify-content: center;
+  align-items: center;
+}
+.landing-cta-android {
+  background: #3ddc84;
+  box-shadow: 0 4px 16px rgba(61, 220, 132, 0.35);
+  text-decoration: none;
+  font-size: 15px;
+  padding: 12px 28px;
+}
+.landing-cta-android:hover {
+  box-shadow: 0 6px 24px rgba(61, 220, 132, 0.45);
+}
+.landing-cta-android svg {
+  flex-shrink: 0;
+}
 .landing-note {
   margin-top: 14px;
   font-size: 13px;

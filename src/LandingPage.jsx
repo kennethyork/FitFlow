@@ -32,9 +32,20 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
           search. No accounts, no subscriptions, and your personal tracking
           data stays on your device.
         </p>
-        <button className="landing-cta" onClick={onLaunch}>
-          Launch App &rarr;
-        </button>
+        <div className="landing-cta-row">
+          <button className="landing-cta" onClick={onLaunch}>
+            Launch App &rarr;
+          </button>
+          <a
+            href="https://expo.dev/accounts/kennethhy/projects/fitflow/builds/latest"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-cta landing-cta-android"
+          >
+            <svg width="20" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M17.523 2.226l1.392-2.415a.45.45 0 00-.784-.442L16.68 1.84A8.68 8.68 0 0012 .814c-1.67 0-3.237.38-4.68 1.026L5.87-.63a.45.45 0 00-.784.442L6.477 2.226A9.18 9.18 0 002.64 9.6h18.72a9.18 9.18 0 00-3.837-7.374zM7.2 6.72a1.08 1.08 0 110-2.16 1.08 1.08 0 010 2.16zm9.6 0a1.08 1.08 0 110-2.16 1.08 1.08 0 010 2.16zM2.64 10.56v8.88a1.44 1.44 0 001.44 1.44H5.52v3.36a1.68 1.68 0 103.36 0v-3.36h2.16v3.36a1.68 1.68 0 103.36 0v-3.36h1.44a1.44 1.44 0 001.44-1.44v-8.88H2.64zm-2.88.96a1.68 1.68 0 00-1.68 1.68v5.28a1.68 1.68 0 103.36 0v-5.28a1.68 1.68 0 00-1.68-1.68zm20.16 0a1.68 1.68 0 00-1.68 1.68v5.28a1.68 1.68 0 103.36 0v-5.28a1.68 1.68 0 00-1.68-1.68z"/></svg>
+            Download for Android
+          </a>
+        </div>
         <p className="landing-note">No sign-up required. Your tracking data stays on your device.</p>
       </section>
 

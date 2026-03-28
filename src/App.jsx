@@ -193,17 +193,20 @@ function App() {
       if (storedKey === periodKey) {
         // Period matches — just deduplicate any existing duplicates in DB
         const existing = allHabits.filter(h => h.source === source);
-        const seen = new Set();
-        for (const h of existing) {
-          if (seen.has(h.title)) {
-            await db.deleteHabit(h.id);
-            allHabits = allHabits.filter(x => x.id !== h.id);
-            changed = true;
-          } else {
-            seen.add(h.title);
+        // If period matches but no tasks exist yet (e.g. fresh DB), fall through to insert
+        if (existing.length > 0) {
+          const seen = new Set();
+          for (const h of existing) {
+            if (seen.has(h.title)) {
+              await db.deleteHabit(h.id);
+              allHabits = allHabits.filter(x => x.id !== h.id);
+              changed = true;
+            } else {
+              seen.add(h.title);
+            }
           }
+          return;
         }
-        return;
       }
       // Period rolled over — archive completed tasks, delete uncompleted
       const old = allHabits.filter(h => h.source === source);

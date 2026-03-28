@@ -479,15 +479,6 @@ input[type="number"] { -moz-appearance: textfield; }
   border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 12px; text-align: center;
 }
 
-/* Quick-add row */
-.quick-add { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
-.quick-add button {
-  padding: 6px 14px; border-radius: var(--radius-full); font-size: 13px;
-  border: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary);
-  cursor: pointer; transition: all 0.15s;
-}
-.quick-add button:hover { border-color: var(--noom-green); color: var(--noom-green); }
-
 /* Section title */
 .section-title {
   font-size: 17px; font-weight: 700; color: var(--text-primary);

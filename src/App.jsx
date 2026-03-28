@@ -1344,15 +1344,8 @@ function App() {
                 )}
               </div>
             )}
-
-            {/* Quick Actions */}
-            <div className="quick-add">
-              <button onClick={() => setTab('food')}>🍽️ Log Meal</button>
-              <button onClick={() => setTab('coach')}>💬 Ask Coach</button>
-              <button onClick={() => setTab('videos')}>🎬 Videos</button>
-            </div>
           </>
-        )}
+        )}}
 
         {/* ═══════ FOOD TAB ═══════ */}
         {tab === 'food' && (

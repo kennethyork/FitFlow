@@ -37,7 +37,7 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
             Launch App &rarr;
           </button>
           <a
-            href="https://expo.dev/accounts/kennethhy/projects/fitflow/builds/latest"
+            href="https://expo.dev/artifacts/eas/pQteTbgeZpdASTiDGYkLYg.apk"
             target="_blank"
             rel="noopener noreferrer"
             className="landing-cta landing-cta-android"

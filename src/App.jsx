@@ -170,6 +170,7 @@ function App() {
   const [foodSearchQuery, setFoodSearchQuery] = useState('');
   const [foodSearchResults, setFoodSearchResults] = useState([]);
   const [showFoodSearch, setShowFoodSearch] = useState(false);
+  const [foodSearchLoading, setFoodSearchLoading] = useState(false);
 
   // Weight tracking
   const [weightLogs, setWeightLogs] = useState([]);
@@ -405,9 +406,10 @@ function App() {
       foodSearchAbortRef.current.abort();
       foodSearchAbortRef.current = null;
     }
-    if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); return; }
+    if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); setFoodSearchLoading(false); return; }
     const requestId = foodSearchRequestIdRef.current + 1;
     foodSearchRequestIdRef.current = requestId;
+    setFoodSearchLoading(true);
     searchTimerRef.current = setTimeout(async () => {
       const controller = new AbortController();
       foodSearchAbortRef.current = controller;
@@ -420,7 +422,9 @@ function App() {
         if (err?.name === 'AbortError') return;
         if (foodSearchRequestIdRef.current !== requestId) return;
         setFoodSearchResults([]);
+        setShowFoodSearch(true);
       } finally {
+        if (foodSearchRequestIdRef.current === requestId) setFoodSearchLoading(false);
         if (foodSearchAbortRef.current === controller) {
           foodSearchAbortRef.current = null;
         }
@@ -442,6 +446,7 @@ function App() {
     setFoodSearchQuery('');
     setFoodSearchResults([]);
     setShowFoodSearch(false);
+    setFoodSearchLoading(false);
   };
 
   // ── Weight handlers ──
@@ -1479,28 +1484,34 @@ function App() {
                     className="input"
                     value={meal}
                     onChange={(e) => { setMeal(e.target.value); searchFoods(e.target.value); }}
-                    onFocus={() => { if (foodSearchResults.length) setShowFoodSearch(true); }}
-                    onBlur={() => setTimeout(() => setShowFoodSearch(false), 200)}
+                    onFocus={() => { if (foodSearchResults.length || foodSearchLoading) setShowFoodSearch(true); }}
+                    onBlur={() => setTimeout(() => { setShowFoodSearch(false); setFoodSearchLoading(false); }, 200)}
                     placeholder="Search food or type custom meal..."
                     autoComplete="off"
                   />
-                  {showFoodSearch && foodSearchResults.length > 0 && (
+                  {(foodSearchLoading || (showFoodSearch && meal.trim().length >= 2)) && (
                     <div className="food-search-dropdown">
-                      {foodSearchResults.map((f, i) => (
-                        <div key={i} className="food-search-item" onMouseDown={() => selectFood(f)}>
-                          <div className="food-search-name">
-                            <span className={`noom-dot noom-${f.color}`} />
-                            <span>{f.name}</span>
-                            {f.brand && (
-                              <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 4 }}>{f.brand}</span>
-                            )}
+                      {foodSearchLoading ? (
+                        <div className="food-search-status">Searching…</div>
+                      ) : foodSearchResults.length > 0 ? (
+                        foodSearchResults.map((f, i) => (
+                          <div key={i} className="food-search-item" onMouseDown={() => selectFood(f)}>
+                            <div className="food-search-name">
+                              <span className={`noom-dot noom-${f.color}`} />
+                              <span>{f.name}</span>
+                              {f.brand && (
+                                <span style={{ color: 'var(--text-muted)', fontSize: 11, marginLeft: 4 }}>{f.brand}</span>
+                              )}
+                            </div>
+                            <div className="food-search-meta">
+                              <span>{f.calories} kcal</span>
+                              <span className="food-search-serving">{f.serving}</span>
+                            </div>
                           </div>
-                          <div className="food-search-meta">
-                            <span>{f.calories} kcal</span>
-                            <span className="food-search-serving">{f.serving}</span>
-                          </div>
-                        </div>
-                      ))}
+                        ))
+                      ) : (
+                        <div className="food-search-status">No results found</div>
+                      )}
                     </div>
                   )}
                 </div>

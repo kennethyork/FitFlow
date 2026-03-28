@@ -20,7 +20,6 @@ const TABS = [
   { id: 'habits', icon: '✅', label: 'Habits' },
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'coach', icon: '💬', label: 'Coach' },
-  { id: 'compare', icon: '⚖️', label: 'Compare' },
   { id: 'account', icon: '⚙️', label: 'Account' },
 ];
 

@@ -1440,32 +1440,16 @@ function App() {
                           {recipe.description && (
                             <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: '8px 0' }}>{recipe.description}</p>
                           )}
-                          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+                          <div style={{ marginTop: 10 }}>
                             <a
                               className="btn btn-primary"
                               href={recipe.link}
                               target="_blank"
                               rel="noopener noreferrer"
-                              style={{ flex: 1, textAlign: 'center', textDecoration: 'none' }}
+                              style={{ display: 'block', textAlign: 'center', textDecoration: 'none' }}
                             >
                               📖 View Recipe
                             </a>
-                            <button
-                              className="btn btn-secondary"
-                              style={{ flex: 1 }}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                logSuggestion({
-                                  name: recipe.name,
-                                  calories: 0, protein: 0, carbs: 0, fat: 0,
-                                  recipeUrl: recipe.link,
-                                  recipeSource: recipe.source,
-                                  recipeDescription: recipe.description,
-                                });
-                              }}
-                            >
-                              + Log &amp; Save
-                            </button>
                           </div>
                         </div>
                       )}

@@ -26,6 +26,7 @@ export default function App() {
   const pedometerSub = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [isDark, setIsDark] = useState(true);
 
   // Handle Android back button → go back in WebView history
   useEffect(() => {
@@ -237,6 +238,11 @@ export default function App() {
         // expo-keep-awake can be added later if needed
         break;
 
+      // ── Theme change ──
+      case 'themeChange':
+        setIsDark(data.isDark !== false);
+        break;
+
       default:
         console.warn('Unknown message type:', type);
     }
@@ -255,13 +261,15 @@ export default function App() {
     true;
   `;
 
+  const bgColor = isDark ? '#0f1117' : '#f8f9fa';
+
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" backgroundColor="#0f1117" />
+    <View style={[styles.container, { backgroundColor: bgColor }]}>
+      <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={bgColor} />
       {error ? (
-        <View style={styles.errorContainer}>
+        <View style={[styles.errorContainer, { backgroundColor: bgColor }]}>
           <Text style={styles.errorEmoji}>⚠️</Text>
-          <Text style={styles.errorTitle}>Can't load FitFlow</Text>
+          <Text style={[styles.errorTitle, { color: isDark ? '#fff' : '#1a1a2e' }]}>Can't load FitFlow</Text>
           <Text style={styles.errorText}>{error}</Text>
           <Text style={styles.errorUrl}>{WEB_APP_URL}</Text>
           <TouchableOpacity style={styles.retryBtn} onPress={() => { setError(null); webviewRef.current?.reload(); }}>
@@ -272,7 +280,7 @@ export default function App() {
       <WebView
         ref={webviewRef}
         source={{ uri: WEB_APP_URL }}
-        style={[styles.webview, error ? { display: 'none' } : null]}
+        style={[styles.webview, { backgroundColor: bgColor }, error ? { display: 'none' } : null]}
         onMessage={onMessage}
         onLoadEnd={() => setLoading(false)}
         onError={(e) => setError(e.nativeEvent.description || 'Unknown error')}
@@ -289,7 +297,7 @@ export default function App() {
         setSupportMultipleWindows={false}
         originWhitelist={['*']}
         renderLoading={() => (
-          <View style={styles.loader}>
+          <View style={[styles.loader, { backgroundColor: bgColor }]}>
             <ActivityIndicator size="large" color="#6c5ce7" />
           </View>
         )}

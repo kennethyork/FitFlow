@@ -885,6 +885,31 @@ input[type="number"] { -moz-appearance: textfield; }
   align-items: center;
   gap: 8px;
 }
+.theme-toggle {
+  display: flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  padding: 2px;
+  gap: 0;
+}
+.theme-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius-full);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: all 0.2s;
+}
+.theme-btn.active {
+  opacity: 1;
+  background: var(--noom-green);
+  box-shadow: var(--shadow-sm);
+}
+.theme-btn:hover { opacity: 0.8; }
 .btn-sm {
   padding: 6px 12px !important;
   font-size: 12px !important;

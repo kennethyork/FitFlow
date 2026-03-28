@@ -71,6 +71,36 @@ function App() {
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
 
+  // Theme: apply to document + persist + notify native
+  const applyTheme = useCallback((t) => {
+    if (t === 'auto') {
+      document.documentElement.removeAttribute('data-theme');
+    } else {
+      document.documentElement.setAttribute('data-theme', t);
+    }
+    // Tell native app about theme for status bar
+    const isDark = t === 'dark' || (t === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    if (isNative) {
+      window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'themeChange', isDark }));
+    }
+  }, []);
+
+  const setTheme = useCallback(async (t) => {
+    setThemeState(t);
+    applyTheme(t);
+    try { await db.setSetting('ff_theme', t); } catch {}
+  }, [applyTheme]);
+
+  // Load saved theme on mount
+  useEffect(() => {
+    db.getSetting('ff_theme').then((saved) => {
+      if (saved && ['auto', 'light', 'dark'].includes(saved)) {
+        setThemeState(saved);
+        applyTheme(saved);
+      }
+    }).catch(() => {});
+  }, [applyTheme]);
+
   const [logs, setLogs] = useState([]);
   const [meal, setMeal] = useState('');
   const [mealCals, setMealCals] = useState('');
@@ -105,6 +135,7 @@ function App() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [expandedSuggestion, setExpandedSuggestion] = useState(null);
   const [expandedLog, setExpandedLog] = useState(null);
+  const [theme, setThemeState] = useState('auto'); // 'auto' | 'light' | 'dark'
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
@@ -961,6 +992,11 @@ function App() {
         <div className="app-header">
           <h1>FitFlow</h1>
           <div className="header-right">
+            <div className="theme-toggle">
+              <button className={`theme-btn ${theme === 'light' ? 'active' : ''}`} onClick={() => setTheme('light')} title="Light mode">☀️</button>
+              <button className={`theme-btn ${theme === 'auto' ? 'active' : ''}`} onClick={() => setTheme('auto')} title="Auto (system)">🔄</button>
+              <button className={`theme-btn ${theme === 'dark' ? 'active' : ''}`} onClick={() => setTheme('dark')} title="Dark mode">🌙</button>
+            </div>
             <button className="btn btn-secondary btn-sm" onClick={() => setTab('account')}>⚙️</button>
           </div>
         </div>

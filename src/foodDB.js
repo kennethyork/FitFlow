@@ -197,25 +197,29 @@ export function getMealSuggestions(remainingCals, goalType) {
   const maxCal = remainingCals > 0 ? remainingCals : 500;
   const pool = _cache.filter((f) => f.calories <= maxCal && f.calories > 50);
 
-  let sorted;
+  let filtered;
   if (goalType === 'lose') {
-    sorted = pool.filter((f) => f.color !== 'red').sort((a, b) => (b.protein || 0) - (a.protein || 0));
-  } else if (goalType === 'gain') {
-    sorted = [...pool].sort((a, b) => b.calories - a.calories);
+    filtered = pool.filter((f) => f.color !== 'red');
   } else {
-    sorted = [...pool].sort(() => Math.random() - 0.5);
+    filtered = [...pool];
+  }
+
+  // Shuffle so each call gives different results
+  for (let i = filtered.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [filtered[i], filtered[j]] = [filtered[j], filtered[i]];
   }
 
   const picks = [];
   const usedCats = new Set();
-  for (const f of sorted) {
+  for (const f of filtered) {
     if (picks.length >= 5) break;
     if (!usedCats.has(f.category)) {
       usedCats.add(f.category);
       picks.push(f);
     }
   }
-  for (const f of sorted) {
+  for (const f of filtered) {
     if (picks.length >= 5) break;
     if (!picks.includes(f)) picks.push(f);
   }

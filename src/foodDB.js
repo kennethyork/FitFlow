@@ -183,69 +183,114 @@ async function _doLoad(onProgress, _retry = false) {
   await db.foods.find().remove();
   _cache = [];
 
-  const resp = await fetch(`${BASE}data/foods/manifest.json`);
-  const manifest = await resp.json();
-  const categories = Object.entries(manifest);
-  const total = categories.reduce((s, [, v]) => s + v.count, 0);
+  let total = 0;
   let loaded = 0;
   let idCounter = 0;
   let insertErrors = 0;
+  const CHUNK = 5000;
 
-  // Start all category fetches in parallel and process whichever file finishes
-  // first so smaller categories do not sit idle behind large earlier files.
-  const pendingFetches = new Map(
-    categories.map(([category, info]) => [
-      category,
-      fetch(`${BASE}data/foods/${info.file}`)
-        .then(async (r) => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return { category, foods: await r.json() };
-        })
-        .catch((err) => { throw new Error(`[foodDB] Failed to fetch "${category}" (${info.file}): ${err.message}`); }),
-    ]),
-  );
+  // Try a single combined foods.json first; fall back to per-category manifest.
+  const singleResp = await fetch(`${BASE}data/foods/foods.json`).catch(() => null);
 
-  while (pendingFetches.size) {
-    const { category, foods } = await Promise.race(pendingFetches.values());
-    pendingFetches.delete(category);
+  if (singleResp?.ok) {
+    // ── Single-file path ──
+    onProgress?.({ status: 'downloading', loaded: 0, total: 0, category: 'All' });
+    const allFoods = await singleResp.json();
+    total = allFoods.length;
 
-    const records = foods.map((f) => ({
-      id: String(idCounter++),
-      name: f.name || '',
-      brand: f.brand || '',
-      category: f.category || category,
-      serving: f.serving || '100g',
-      calories: f.calories || 0,
-      protein: f.protein || 0,
-      carbs: f.carbs || 0,
-      fat: f.fat || 0,
-      fiber: f.fiber || 0,
-      sugar: f.sugar || 0,
-      barcode: f.barcode || '',
-    }));
+    for (let i = 0; i < allFoods.length; i += CHUNK) {
+      const slice = allFoods.slice(i, i + CHUNK);
+      const records = slice.map((f) => ({
+        id: String(idCounter++),
+        name: f.name || '',
+        brand: f.brand || '',
+        category: f.category || 'Other',
+        serving: f.serving || '100g',
+        calories: f.calories || 0,
+        protein: f.protein || 0,
+        carbs: f.carbs || 0,
+        fat: f.fat || 0,
+        fiber: f.fiber || 0,
+        sugar: f.sugar || 0,
+        barcode: f.barcode || '',
+      }));
 
-    // Bulk insert (chunked for memory)
-    const CHUNK = 5000;
-    for (let i = 0; i < records.length; i += CHUNK) {
-      const { error } = await db.foods.bulkInsert(records.slice(i, i + CHUNK));
+      const { error } = await db.foods.bulkInsert(records);
       if (error?.length) {
         insertErrors += error.length;
-        console.warn(`[foodDB] bulkInsert: ${error.length} errors in "${category}" chunk ${i / CHUNK}`, error[0]);
+        console.warn(`[foodDB] bulkInsert: ${error.length} errors in chunk ${Math.floor(i / CHUNK)}`, error[0]);
       }
+
+      for (const r of records) {
+        _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
+      }
+
+      if (!_ready) _ready = true;
+      loaded += slice.length;
+      onProgress?.({ status: 'downloading', loaded, total, category: 'All' });
     }
+  } else {
+    // ── Multi-file path (manifest) ──
+    const resp = await fetch(`${BASE}data/foods/manifest.json`);
+    const manifest = await resp.json();
+    const categories = Object.entries(manifest);
+    total = categories.reduce((s, [, v]) => s + v.count, 0);
 
-    // Add to in-memory cache progressively (always, so current session can search)
-    for (const r of records) {
-      _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
+    // Start all category fetches in parallel and process whichever file finishes
+    // first so smaller categories do not sit idle behind large earlier files.
+    const pendingFetches = new Map(
+      categories.map(([category, info]) => [
+        category,
+        fetch(`${BASE}data/foods/${info.file}`)
+          .then(async (r) => {
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
+            return { category, foods: await r.json() };
+          })
+          .catch((err) => { throw new Error(`[foodDB] Failed to fetch "${category}" (${info.file}): ${err.message}`); }),
+      ]),
+    );
+
+    while (pendingFetches.size) {
+      const { category, foods } = await Promise.race(pendingFetches.values());
+      pendingFetches.delete(category);
+
+      const records = foods.map((f) => ({
+        id: String(idCounter++),
+        name: f.name || '',
+        brand: f.brand || '',
+        category: f.category || category,
+        serving: f.serving || '100g',
+        calories: f.calories || 0,
+        protein: f.protein || 0,
+        carbs: f.carbs || 0,
+        fat: f.fat || 0,
+        fiber: f.fiber || 0,
+        sugar: f.sugar || 0,
+        barcode: f.barcode || '',
+      }));
+
+      // Bulk insert (chunked for memory)
+      for (let i = 0; i < records.length; i += CHUNK) {
+        const { error } = await db.foods.bulkInsert(records.slice(i, i + CHUNK));
+        if (error?.length) {
+          insertErrors += error.length;
+          console.warn(`[foodDB] bulkInsert: ${error.length} errors in "${category}" chunk ${Math.floor(i / CHUNK)}`, error[0]);
+        }
+      }
+
+      // Add to in-memory cache progressively (always, so current session can search)
+      for (const r of records) {
+        _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
+      }
+
+      // Enable search as soon as the first batch of foods is available.
+      // The full binary-search index isn't built yet, so searchFoods will
+      // fall back to a linear scan until _indexReady is set below.
+      if (!_ready) _ready = true;
+
+      loaded += foods.length;
+      onProgress?.({ status: 'downloading', loaded, total, category });
     }
-
-    // Enable search as soon as the first batch of foods is available.
-    // The full binary-search index isn't built yet, so searchFoods will
-    // fall back to a linear scan until _indexReady is set below.
-    if (!_ready) _ready = true;
-
-    loaded += foods.length;
-    onProgress?.({ status: 'downloading', loaded, total, category });
   }
 
   // Only persist the version if all records were stored successfully.

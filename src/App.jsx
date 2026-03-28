@@ -1865,7 +1865,15 @@ function App() {
                   <div
                     className={`video-card${playingVideo && playingVideo.id === v.id ? ' playing' : ''}`}
                     key={v.id}
-                    onClick={() => { setPlayingVideo(v); if (isNative) hapticTap(); }}
+                    onClick={() => {
+                      if (isNative && v.videoId) {
+                        // On mobile, open YouTube directly (iframes don't work in WebView)
+                        window.open(`https://www.youtube.com/watch?v=${v.videoId}`, '_blank');
+                      } else {
+                        setPlayingVideo(v);
+                      }
+                      if (isNative) hapticTap();
+                    }}
                   >
                     <div className="video-card-thumb">
                       {v.thumbnail ? (

@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { StyleSheet, View, BackHandler, Share, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
+import { StyleSheet, View, BackHandler, Share, ActivityIndicator, Text, TouchableOpacity, Linking } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { Pedometer } from 'expo-sensors';
@@ -296,6 +296,15 @@ export default function App() {
         mixedContentMode="compatibility"
         setSupportMultipleWindows={false}
         originWhitelist={['*']}
+        onShouldStartLoadWithRequest={(request) => {
+          // Open external URLs (YouTube, etc.) in system browser
+          const url = request.url;
+          if (url.startsWith('http') && !url.includes('fitflow.kennethyork.com') && !url.includes('localhost') && !url.includes('10.0.2.2') && !url.includes('192.168.')) {
+            Linking.openURL(url);
+            return false;
+          }
+          return true;
+        }}
         renderLoading={() => (
           <View style={[styles.loader, { backgroundColor: bgColor }]}>
             <ActivityIndicator size="large" color="#6c5ce7" />

@@ -229,6 +229,11 @@ function App() {
     setHabits([]);
     setPlaylist([]);
     setChatHistory([]);
+    // Return to landing page (web) or stay at onboarding (mobile)
+    if (!isNative) {
+      window.location.hash = '';
+      setShowLanding(true);
+    }
   };
 
   const handleProfileUpdate = async (profileData) => {

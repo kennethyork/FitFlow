@@ -181,6 +181,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .food-search-name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 500; color: var(--text-primary); }
 .food-search-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 13px; font-weight: 600; color: var(--noom-green); }
 .food-search-serving { font-size: 11px; font-weight: 400; color: var(--text-muted); }
+.food-search-status { padding: 12px 14px; font-size: 13px; color: var(--text-muted); text-align: center; }
 .noom-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .noom-green { background: #00a86b; }
 .noom-yellow { background: #f5b731; }

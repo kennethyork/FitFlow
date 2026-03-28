@@ -457,6 +457,7 @@ function App() {
     const log = await db.addWeightLog({ weight: parseFloat(weightInput), unit: weightUnit });
     setWeightLogs(prev => [log, ...prev]);
     setWeightInput('');
+    fetchWeeklySummary();
   };
 
   // ── Water handlers ──
@@ -466,6 +467,7 @@ function App() {
     else hapticTap();
     setWaterGlasses(next);
     await db.setWaterToday(next);
+    fetchWeeklySummary();
   };
 
   // ── Progress photo handler (stored as data URLs locally) ──
@@ -502,6 +504,7 @@ function App() {
     await db.setStepsToday(steps);
     setStepsToday(steps);
     setStepInput('');
+    fetchWeeklySummary();
   };
 
   const syncNativeSteps = async () => {
@@ -510,6 +513,7 @@ function App() {
       hapticTap();
       await db.setStepsToday(steps);
       setStepsToday(steps);
+      fetchWeeklySummary();
     }
   };
 
@@ -580,6 +584,7 @@ function App() {
     setMealCarbs('');
     setMealFat('');
     setMealRecipeUrl('');
+    fetchWeeklySummary();
   };
 
   const logRecipe = async (recipe) => {
@@ -593,12 +598,14 @@ function App() {
       recipeUrl: recipe.recipeUrl || '',
     });
     setLogs(prev => [newLog, ...prev]);
+    fetchWeeklySummary();
   };
 
   const deleteLog = async (id) => {
     await db.deleteFoodLog(id);
     setLogs((prev) => prev.filter((l) => l.id !== id));
     setConfirmDelete(null);
+    fetchWeeklySummary();
   };
 
   const startEditLog = (log) => {
@@ -622,6 +629,7 @@ function App() {
       setLogs((prev) => prev.map((l) => (l.id === updated.id ? updated : l)));
     }
     setEditingLog(null);
+    fetchWeeklySummary();
   };
 
   const loadFavorites = async () => {
@@ -766,6 +774,7 @@ function App() {
       recipeSource: meal.recipeSource || '',
     });
     setLogs(prev => [newLog, ...prev]);
+    fetchWeeklySummary();
 
     // Save RSS recipes to user's recipe collection for future reference
     if (meal.recipeUrl) {
@@ -899,6 +908,7 @@ function App() {
     const updated = await db.toggleHabit(id);
     if (updated.completed) hapticSuccess(); else hapticTap();
     setHabits((prev) => prev.map((h) => (h.id === updated.id ? updated : h)));
+    fetchWeeklySummary();
   };
 
   const deleteHabit = async (id) => {

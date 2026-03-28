@@ -154,10 +154,6 @@ function App() {
   // Weekly summary
   const [weeklySummary, setWeeklySummary] = useState(null);
 
-  // Saved recipes modal
-  const [showSavedRecipes, setShowSavedRecipes] = useState(false);
-  const [savedRecipes, setSavedRecipes] = useState([]);
-
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [foodDbProgress, setFoodDbProgress] = useState(null); // { status, loaded, total, category }
@@ -704,17 +700,6 @@ function App() {
         m === meal ? { ...m, _saved: true } : m
       ));
     }
-  };
-
-  const openSavedRecipes = async () => {
-    const recipes = await db.getRecipes();
-    setSavedRecipes(recipes);
-    setShowSavedRecipes(true);
-  };
-
-  const deleteSavedRecipe = async (id) => {
-    await db.deleteRecipe(id);
-    setSavedRecipes(prev => prev.filter(r => r.id !== id));
   };
 
   // ── Streaks & Badges ──
@@ -1478,7 +1463,6 @@ function App() {
                     ✕ Clear
                   </button>
                 )}
-                <button className="btn btn-secondary" onClick={openSavedRecipes}>📖 Saved</button>
               </div>
               {mealSuggestions.length > 0 && (
                 <div className="suggestion-list">
@@ -1877,43 +1861,6 @@ function App() {
       {/* Bottom Tab Bar — mobile only */}
       <nav className="tab-bar">
 
-      {/* Saved Recipes Modal */}
-      {showSavedRecipes && (
-        <div className="recipes-overlay" onClick={() => setShowSavedRecipes(false)}>
-          <div className="recipes-sheet" onClick={(e) => e.stopPropagation()}>
-            <div className="recipes-header">
-              <h2>📖 Saved Recipes</h2>
-              <button className="close-btn" onClick={() => setShowSavedRecipes(false)}>✕</button>
-            </div>
-            {savedRecipes.length === 0 ? (
-              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
-                No saved recipes yet. Save meals from suggestions to see them here.
-              </p>
-            ) : (
-              <div className="recipes-list">
-                {savedRecipes.map((recipe) => {
-                  const recipeUrl = recipe.instructions?.match(/View full recipe: (\S+)/)?.[1];
-                  return (
-                    <div className="recipe-item" key={recipe.id}>
-                      <div className="recipe-item-info">
-                        <div className="recipe-item-name">{recipe.name}</div>
-                        <div className="recipe-item-macros">
-                          {recipe.calories} kcal · {recipe.protein}g P · {recipe.carbs}g C · {recipe.fat}g F
-                        </div>
-                      </div>
-                      <div className="recipe-item-actions">
-                        <button className="btn btn-small" onClick={() => { logRecipe(recipe); setShowSavedRecipes(false); }}>+ Log</button>
-                        {recipeUrl && <a className="btn btn-small btn-recipe" href={recipeUrl} target="_blank" rel="noopener noreferrer">🔗 Open</a>}
-                        <button className="btn btn-small btn-danger" onClick={() => deleteSavedRecipe(recipe.id)}>🗑️</button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
         {TABS.map((t) => (
           <button
             key={t.id}

@@ -50,7 +50,7 @@ function difficultyClass(d) {
 function App() {
   const [user, setUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showLanding, setShowLanding] = useState(true);
+  const [showLanding, setShowLanding] = useState(!isNative && !window.location.hash);
 
   const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
@@ -66,7 +66,14 @@ function App() {
 
   // Sync tab when browser back/forward changes the hash
   useEffect(() => {
-    const onHash = () => setTabState(getHashTab());
+    const onHash = () => {
+      if (!window.location.hash) {
+        setShowLanding(true);
+      } else {
+        setShowLanding(false);
+        setTabState(getHashTab());
+      }
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
@@ -301,10 +308,6 @@ function App() {
     (async () => {
       try {
         setLoading(true);
-
-        // Check if user has seen the landing page
-        const launched = await db.getSetting('fitflow_launched');
-        if (launched) setShowLanding(false);
 
         // Load or create profile
         let profile = await db.getProfile();
@@ -908,7 +911,7 @@ function App() {
   }, [tab, activeVideoTab]);
 
   if (showLanding) {
-    return <LandingPage onLaunch={() => { db.setSetting('fitflow_launched', '1'); setShowLanding(false); }} />;
+    return <LandingPage onLaunch={() => { setShowLanding(false); window.location.hash = 'home'; }} />;
   }
 
   if (!user) {

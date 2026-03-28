@@ -6,9 +6,24 @@ const SEARCH_ENDPOINT = 'https://world.openfoodfacts.org/cgi/search.pl';
 const PRODUCT_ENDPOINT = 'https://world.openfoodfacts.org/api/v2/product';
 const MIN_SEARCH_LENGTH = 2;
 const MAX_RESULTS = 20;
-const CACHE_TTL_MS = 1000 * 60 * 60 * 6;
+const HOUR_IN_MS = 1000 * 60 * 60;
+// Cache repeated searches for the same session so we stay fast and avoid
+// re-hitting the public search endpoint for terms the user just typed.
+// Six hours covers a typical day of meal logging even if the tab stays open.
+const CACHE_TTL_MS = 6 * HOUR_IN_MS;
 const CACHE_LIMIT = 50;
 const SESSION_CACHE_KEY = 'ff_food_search_cache_v1';
+const PRODUCT_FIELDS = [
+  'code',
+  'product_name',
+  'generic_name',
+  'abbreviated_product_name',
+  'brands',
+  'categories',
+  'serving_size',
+  'quantity',
+  'nutriments',
+].join(',');
 
 export const FOOD_CATEGORIES = [
   'Baby Foods', 'Beverages', 'Condiments', 'Dairy & Eggs', 'Fast Food',
@@ -18,6 +33,8 @@ export const FOOD_CATEGORIES = [
   'Sweets & Desserts', 'Vegetables',
 ];
 
+// Approximate macros used only when the public API is unavailable so search
+// still returns useful starter foods instead of failing empty.
 const FALLBACK_MEALS = [
   { name: 'Banana', calories: 105, protein: 1.3, carbs: 27, fat: 0.4, serving: '1 medium', color: 'yellow', category: 'Fruits' },
   { name: 'Apple', calories: 95, protein: 0.5, carbs: 25, fat: 0.3, serving: '1 medium', color: 'green', category: 'Fruits' },
@@ -51,7 +68,8 @@ function loadSearchCache() {
 
 function persistSearchCache() {
   try {
-    const entries = Array.from(_searchCache.entries()).slice(-CACHE_LIMIT);
+    const entries = Array.from(_searchCache.entries());
+    while (entries.length > CACHE_LIMIT) entries.shift();
     sessionStorage.setItem(SESSION_CACHE_KEY, JSON.stringify(entries));
   } catch {
     // Ignore storage issues (private mode, quota, etc.)
@@ -165,7 +183,7 @@ function searchFallbackFoods(query, limit = MAX_RESULTS) {
   const q = query.toLowerCase();
   return FALLBACK_MEALS
     .filter((food) => {
-      const haystacks = [food.name, food.category, food.brand].filter(Boolean).map((value) => value.toLowerCase());
+      const haystacks = [food.name, food.category].filter(Boolean).map((value) => value.toLowerCase());
       return haystacks.some((value) => value.includes(q));
     })
     .slice(0, limit);
@@ -197,17 +215,7 @@ export async function searchFoods(query, options = {}) {
     action: 'process',
     json: '1',
     page_size: String(MAX_RESULTS),
-    fields: [
-      'code',
-      'product_name',
-      'generic_name',
-      'abbreviated_product_name',
-      'brands',
-      'categories',
-      'serving_size',
-      'quantity',
-      'nutriments',
-    ].join(','),
+    fields: PRODUCT_FIELDS,
   });
 
   let results;
@@ -218,7 +226,7 @@ export async function searchFoods(query, options = {}) {
     });
 
     if (!response.ok) {
-      throw new Error(`Food search failed with ${response.status}`);
+      throw new Error(`Food search failed: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
@@ -239,7 +247,7 @@ export async function lookupBarcode(code, options = {}) {
   const trimmed = (code || '').trim();
   if (!trimmed) return null;
 
-  const response = await fetch(`${PRODUCT_ENDPOINT}/${encodeURIComponent(trimmed)}?fields=code,product_name,generic_name,abbreviated_product_name,brands,categories,serving_size,quantity,nutriments`, {
+  const response = await fetch(`${PRODUCT_ENDPOINT}/${encodeURIComponent(trimmed)}?fields=${encodeURIComponent(PRODUCT_FIELDS)}`, {
     signal: options.signal,
     headers: { Accept: 'application/json' },
   });

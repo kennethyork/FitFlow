@@ -28,8 +28,9 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
         </h1>
         <p className="landing-subtitle">
           FitFlow is a free, open-source fitness &amp; nutrition tracker that
-          runs primarily in your browser. No accounts, no subscriptions, and
-          your personal tracking data stays on your device.
+          runs in your browser, with optional public food lookups when you
+          search. No accounts, no subscriptions, and your personal tracking
+          data stays on your device.
         </p>
         <button className="landing-cta" onClick={onLaunch}>
           Launch App &rarr;

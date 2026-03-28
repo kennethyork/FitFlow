@@ -47,6 +47,8 @@ function difficultyClass(d) {
   return 'hard';
 }
 
+const FOOD_SEARCH_DEBOUNCE_MS = 400;
+
 function App() {
   const [user, setUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
@@ -391,7 +393,8 @@ function App() {
   const habitsCompleted = useMemo(() => habits.filter((h) => h.completed).length, [habits]);
   const calGoal = user?.calorieGoal || 1800;
 
-  // Debounced food search — waits briefly so we do not spam the public API
+  // Debounced food search — this keeps typeahead responsive while avoiding a
+  // burst of back-to-back requests on every keystroke against the public API.
   const searchTimerRef = useRef(null);
   const foodSearchAbortRef = useRef(null);
   const foodSearchRequestIdRef = useRef(0);
@@ -422,7 +425,7 @@ function App() {
           foodSearchAbortRef.current = null;
         }
       }
-    }, 400);
+    }, FOOD_SEARCH_DEBOUNCE_MS);
   }, []);
 
   useEffect(() => () => {

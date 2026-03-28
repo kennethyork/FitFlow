@@ -223,12 +223,7 @@ function App() {
   };
 
   const handleLogout = async () => {
-    await db.clearAllData();
     setUser(null);
-    setLogs([]);
-    setHabits([]);
-    setPlaylist([]);
-    setChatHistory([]);
     // Return to landing page (web) or stay at onboarding (mobile)
     if (!isNative) {
       window.location.hash = '';

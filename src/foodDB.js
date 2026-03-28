@@ -66,11 +66,14 @@ function getFoodDB() {
 }
 
 const BASE = import.meta.env.BASE_URL || '/';
-const FOOD_DB_VERSION = '2026.03.27';
+const FOOD_DB_VERSION = '2026.03.28';
 
 // In-memory cache for instant search
 let _cache = [];
 let _ready = false;
+
+// Prevents concurrent loadFoodDatabase calls from racing
+let _loadingPromise = null;
 
 // Minimum characters required for a query / word entry to be indexed
 const MIN_SEARCH_LENGTH = 2;
@@ -138,6 +141,13 @@ function assignColor(f) {
 }
 
 export async function loadFoodDatabase(onProgress) {
+  // Deduplicate concurrent calls — return the in-flight promise if one exists
+  if (_loadingPromise) return _loadingPromise;
+  _loadingPromise = _doLoad(onProgress).finally(() => { _loadingPromise = null; });
+  return _loadingPromise;
+}
+
+async function _doLoad(onProgress, _retry = false) {
   const db = await getFoodDB();
   const metaDoc = await db.meta.findOne('version').exec();
 
@@ -145,6 +155,16 @@ export async function loadFoodDatabase(onProgress) {
     // Already imported — load from RxDB into memory
     onProgress?.({ status: 'cache', message: 'Loading food database...' });
     const all = await db.foods.find().exec();
+
+    // If the stored version matches but the DB is empty, a previous download was
+    // interrupted after the version meta was written but before foods were inserted.
+    // Clear the stale meta and attempt one fresh import.  Guard against looping.
+    if (all.length === 0) {
+      if (_retry) throw new Error(`[foodDB] Food database is empty after re-import attempt (version ${FOOD_DB_VERSION}). Try clearing site data manually.`);
+      await db.meta.find().remove();
+      return _doLoad(onProgress, true);
+    }
+
     _cache = all.map((d) => {
       const f = d.toJSON();
       return { ...f, _lower: f.name.toLowerCase(), color: assignColor(f) };
@@ -155,7 +175,7 @@ export async function loadFoodDatabase(onProgress) {
     return;
   }
 
-  // First time — download JSON files and bulk-insert
+  // First time (or version changed) — download JSON files and bulk-insert
   await db.foods.find().remove();
   _cache = [];
 
@@ -165,6 +185,7 @@ export async function loadFoodDatabase(onProgress) {
   const total = categories.reduce((s, [, v]) => s + v.count, 0);
   let loaded = 0;
   let idCounter = 0;
+  let insertErrors = 0;
 
   for (const [category, info] of categories) {
     const catResp = await fetch(`${BASE}data/foods/${info.file}`);
@@ -188,10 +209,14 @@ export async function loadFoodDatabase(onProgress) {
     // Bulk insert (chunked for memory)
     const CHUNK = 5000;
     for (let i = 0; i < records.length; i += CHUNK) {
-      await db.foods.bulkInsert(records.slice(i, i + CHUNK));
+      const { error } = await db.foods.bulkInsert(records.slice(i, i + CHUNK));
+      if (error?.length) {
+        insertErrors += error.length;
+        console.warn(`[foodDB] bulkInsert: ${error.length} errors in "${category}" chunk ${i / CHUNK}`, error[0]);
+      }
     }
 
-    // Add to in-memory cache progressively
+    // Add to in-memory cache progressively (always, so current session can search)
     for (const r of records) {
       _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
     }
@@ -200,7 +225,14 @@ export async function loadFoodDatabase(onProgress) {
     onProgress?.({ status: 'downloading', loaded, total, category });
   }
 
-  await db.meta.upsert({ key: 'version', value: FOOD_DB_VERSION });
+  // Only persist the version if all records were stored successfully.
+  // If inserts failed, the DB is incomplete — skip writing the version so the
+  // next session retries the full download rather than loading partial data.
+  if (insertErrors === 0) {
+    await db.meta.upsert({ key: 'version', value: FOOD_DB_VERSION });
+  } else {
+    console.warn(`[foodDB] Skipping version write — ${insertErrors} insert error(s) detected; will retry on next load. If this persists, clear site data in browser settings.`);
+  }
   buildSearchIndex();
   _ready = true;
   onProgress?.({ status: 'done', loaded, total });
@@ -297,4 +329,5 @@ export async function clearFoodDatabase() {
   _cache = [];
   _wordIndex = [];
   _ready = false;
+  _loadingPromise = null;
 }

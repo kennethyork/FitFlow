@@ -1030,6 +1030,10 @@ function App() {
           <span className="sidebar-icon">⚙️</span>
           Account
         </button>
+        <button className={`sidebar-item ${tab === 'compare' ? 'active' : ''}`} onClick={() => setTab('compare')}>
+          <span className="sidebar-icon">⚖️</span>
+          Compare
+        </button>
         <button className="sidebar-item" onClick={handleLogout}>
           <span className="sidebar-icon">🚪</span>
           Logout

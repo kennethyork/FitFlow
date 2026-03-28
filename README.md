@@ -38,6 +38,27 @@ When running as a native Android app, FitFlow gains access to:
 - **Push Notifications** — Reminders for meals, workouts, and daily check-ins.
 - **Native Share** — Share your progress using the system share sheet.
 
+## Self-Hosting
+
+FitFlow is a fully static web app — **no server, no serverless platform (e.g. Vercel), and no database backend are required.**
+
+All data is stored locally in the browser via IndexedDB. The AI coach, recipe generator, and habit tasks run entirely on-device. Food search makes optional calls to the USDA FoodData Central API directly from the browser — no proxy server is needed.
+
+To build and deploy the app yourself:
+
+```bash
+# Install dependencies
+npm install
+
+# Build the static site (fetches RSS feeds then compiles with Vite)
+npm run build
+
+# The output is in dist/ — serve it from any static host:
+# GitHub Pages, Netlify, Cloudflare Pages, an S3 bucket, a plain nginx/Apache server, etc.
+```
+
+Optionally, set `VITE_FDC_API_KEY` to a free key from [https://fdc.nal.usda.gov/api-key-signup.html](https://fdc.nal.usda.gov/api-key-signup.html) to raise the food-search rate limit (the app falls back to `DEMO_KEY` if the variable is not set).
+
 ## License
 
 MIT

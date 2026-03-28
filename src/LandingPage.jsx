@@ -1,16 +1,23 @@
-export default function LandingPage({ onLaunch }) {
+export default function LandingPage({ onLaunch, theme, setTheme }) {
   return (
     <div className="landing">
       <nav className="landing-nav">
         <div className="landing-nav-brand">🌿 FitFlow</div>
-        <a
-          href="https://github.com/kennethyork/FitFlow"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="landing-nav-link"
-        >
-          GitHub
-        </a>
+        <div className="landing-nav-right">
+          <div className="theme-toggle">
+            <button className={`theme-btn ${theme === 'light' ? 'active' : ''}`} onClick={() => setTheme('light')} title="Light mode" aria-label="Switch to light mode">☀️</button>
+            <button className={`theme-btn ${theme === 'auto' ? 'active' : ''}`} onClick={() => setTheme('auto')} title="Auto (system)" aria-label="Switch to auto (system) mode">🔄</button>
+            <button className={`theme-btn ${theme === 'dark' ? 'active' : ''}`} onClick={() => setTheme('dark')} title="Dark mode" aria-label="Switch to dark mode">🌙</button>
+          </div>
+          <a
+            href="https://github.com/kennethyork/FitFlow"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="landing-nav-link"
+          >
+            GitHub
+          </a>
+        </div>
       </nav>
 
       <section className="landing-hero">

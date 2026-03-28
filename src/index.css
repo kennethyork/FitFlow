@@ -25,6 +25,12 @@
   --radius-lg: 16px;
   --radius-full: 9999px;
 
+  /* Semantic aliases used in App.css */
+  --bg-primary: var(--bg-card);
+  --bg-secondary: var(--bg);
+  --bg-tertiary: var(--border-light);
+  --bg-main: var(--bg);
+
   --sans: 'Inter', system-ui, -apple-system, sans-serif;
   font-family: var(--sans);
   font-size: 16px;

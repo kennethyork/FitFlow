@@ -911,7 +911,7 @@ function App() {
   }, [tab, activeVideoTab]);
 
   if (showLanding) {
-    return <LandingPage onLaunch={() => { setShowLanding(false); window.location.hash = 'home'; }} />;
+    return <LandingPage onLaunch={() => { setShowLanding(false); window.location.hash = 'home'; }} theme={theme} setTheme={setTheme} />;
   }
 
   if (!user) {

@@ -1867,8 +1867,12 @@ function App() {
                     key={v.id}
                     onClick={() => {
                       if (isNative && v.videoId) {
-                        // On mobile, open YouTube directly (iframes don't work in WebView)
-                        window.open(`https://www.youtube.com/watch?v=${v.videoId}`, '_blank');
+                        // On mobile, play natively via react-native-youtube-iframe
+                        window.ReactNativeWebView?.postMessage(JSON.stringify({
+                          type: 'playVideo',
+                          videoId: v.videoId,
+                          title: v.title,
+                        }));
                       } else {
                         setPlayingVideo(v);
                       }

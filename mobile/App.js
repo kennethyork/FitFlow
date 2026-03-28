@@ -1,7 +1,8 @@
-import { useRef, useEffect, useState } from 'react';
-import { StyleSheet, View, BackHandler, Share, ActivityIndicator, Text, TouchableOpacity, Linking } from 'react-native';
+import { useRef, useEffect, useState, useCallback } from 'react';
+import { StyleSheet, View, BackHandler, Share, ActivityIndicator, Text, TouchableOpacity, Linking, Dimensions, SafeAreaView } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
+import YoutubePlayer from 'react-native-youtube-iframe';
 import { Pedometer } from 'expo-sensors';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
@@ -27,6 +28,8 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [isDark, setIsDark] = useState(true);
+  const [ytVideoId, setYtVideoId] = useState(null);
+  const [ytVideoTitle, setYtVideoTitle] = useState('');
 
   // Handle Android back button → go back in WebView history
   useEffect(() => {
@@ -243,6 +246,14 @@ export default function App() {
         setIsDark(data.isDark !== false);
         break;
 
+      // ── Play YouTube video natively ──
+      case 'playVideo':
+        if (data.videoId) {
+          setYtVideoId(data.videoId);
+          setYtVideoTitle(data.title || '');
+        }
+        break;
+
       default:
         console.warn('Unknown message type:', type);
     }
@@ -262,10 +273,38 @@ export default function App() {
   `;
 
   const bgColor = isDark ? '#0f1117' : '#f8f9fa';
+  const screenWidth = Dimensions.get('window').width;
+
+  const closeYouTube = useCallback(() => {
+    setYtVideoId(null);
+    setYtVideoTitle('');
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={bgColor} />
+
+      {/* Native YouTube Player Overlay */}
+      {ytVideoId && (
+        <SafeAreaView style={[styles.ytOverlay, { backgroundColor: bgColor }]}>
+          <View style={styles.ytHeader}>
+            <Text style={[styles.ytTitle, { color: isDark ? '#fff' : '#1a1a2e' }]} numberOfLines={2}>{ytVideoTitle}</Text>
+            <TouchableOpacity onPress={closeYouTube} style={styles.ytCloseBtn}>
+              <Text style={styles.ytCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+          <YoutubePlayer
+            height={Math.round(screenWidth * 9 / 16)}
+            width={screenWidth}
+            videoId={ytVideoId}
+            play={true}
+            onChangeState={(state) => { if (state === 'ended') closeYouTube(); }}
+          />
+          <TouchableOpacity onPress={closeYouTube} style={styles.ytBackBtn}>
+            <Text style={styles.ytBackText}>← Back to FitFlow</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      )}
       {error ? (
         <View style={[styles.errorContainer, { backgroundColor: bgColor }]}>
           <Text style={styles.errorEmoji}>⚠️</Text>
@@ -349,4 +388,49 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  ytOverlay: {
+    position: 'absolute',
+    top: 0, left: 0, right: 0, bottom: 0,
+    zIndex: 100,
+    justifyContent: 'flex-start',
+    paddingTop: 40,
+  },
+  ytHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  ytTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  ytCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(128,128,128,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 12,
+  },
+  ytCloseText: {
+    fontSize: 18,
+    color: '#fff',
+    fontWeight: '700',
+  },
+  ytBackBtn: {
+    marginTop: 24,
+    alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#6c5ce7',
+    borderRadius: 8,
+  },
+  ytBackText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });

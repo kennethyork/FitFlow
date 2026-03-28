@@ -1,98 +1,25 @@
 // ── Recipe RSS Feed Fetcher ──
-// Fetches healthy recipes from cooking blogs/sites via RSS.
-// Uses the same CORS proxy + caching pattern as youtubeRSS.js.
-
-const RECIPE_FEEDS = [
-  { url: 'https://www.skinnytaste.com/feed/', name: 'Skinnytaste' },
-  { url: 'https://minimalistbaker.com/feed/', name: 'Minimalist Baker' },
-  { url: 'https://www.budgetbytes.com/feed/', name: 'Budget Bytes' },
-  { url: 'https://www.eatingwell.com/feed/', name: 'EatingWell' },
-  { url: 'https://cookinglsl.com/feed/', name: 'Cooking LSL' },
-  { url: 'https://www.loveandlemons.com/feed/', name: 'Love and Lemons' },
-];
-
-// ── CORS proxies ──
-const CORS_PROXIES = [
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-];
+// Loads pre-fetched recipe data from build-time JSON.
+// No CORS proxies needed — data is same-origin.
 
 // ── Feed cache (30-minute TTL) ──
 let _recipeCache = null;
 let _recipeCacheTs = 0;
 const CACHE_TTL = 30 * 60 * 1000;
 
-function stripHtml(html) {
-  if (!html) return '';
-  // Remove tags, then decode all HTML entities via textarea trick
-  const stripped = html.replace(/<[^>]*>/g, '');
-  const ta = document.createElement('textarea');
-  ta.innerHTML = stripped;
-  return ta.value.replace(/\s+/g, ' ').trim();
-}
-
-function extractImage(item) {
-  // Try media:content, enclosure, or img in content
-  const media = item.querySelector('content[url]');
-  if (media) return media.getAttribute('url');
-  const enc = item.querySelector('enclosure[url]');
-  if (enc) return enc.getAttribute('url');
-  const content = item.querySelector('content\\:encoded, description');
-  if (content) {
-    const match = content.textContent.match(/<img[^>]+src=["']([^"']+)["']/);
-    if (match) return match[1];
-  }
-  return '';
-}
-
-function parseRecipeXml(xmlText, sourceName) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, 'text/xml');
-  const items = doc.querySelectorAll('item');
-  const recipes = [];
-
-  items.forEach((item) => {
-    const title = item.querySelector('title')?.textContent?.trim() || '';
-    const link = item.querySelector('link')?.textContent?.trim() || '';
-    const pubDate = item.querySelector('pubDate')?.textContent || '';
-    const desc = stripHtml(
-      item.querySelector('description')?.textContent || ''
-    );
-    const image = extractImage(item);
-
-    if (title && link) {
-      recipes.push({
-        id: `rss-${btoa(link).slice(0, 20)}`,
-        title,
-        link,
-        description: desc.slice(0, 200),
-        image,
-        source: sourceName,
-        published: pubDate,
-      });
-    }
-  });
-
-  return recipes;
-}
-
-async function fetchWithProxy(url) {
-  const attempts = CORS_PROXIES.map(async (makeProxy) => {
-    const res = await fetch(makeProxy(url), { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) throw new Error('not ok');
-    const text = await res.text();
-    if (!text.includes('<rss') && !text.includes('<feed') && !text.includes('<item'))
-      throw new Error('not xml');
-    return text;
-  });
+// ── Static feed data (loaded once from build-time JSON) ──
+let _staticRecipes = null;
+async function loadStaticRecipes() {
+  if (_staticRecipes) return _staticRecipes;
   try {
-    return await Promise.any(attempts);
-  } catch {
-    return null;
-  }
+    const base = import.meta.env.BASE_URL || '/';
+    const res = await fetch(`${base}data/recipe-feeds.json`);
+    if (res.ok) _staticRecipes = await res.json();
+  } catch { /* ignore */ }
+  return _staticRecipes || [];
 }
 
-// Deterministic daily shuffle (same as youtubeRSS)
+// Deterministic daily shuffle
 function dailyShuffle(arr) {
   const dayOfYear = Math.floor(
     (Date.now() - new Date(new Date().getFullYear(), 0, 0)) / 86400000
@@ -109,7 +36,7 @@ const INCLUDE = /recipe|cook|meal|prep|breakfast|lunch|dinner|snack|salad|soup|b
 const EXCLUDE = /sponsor|giveaway|roundup|best of \d|amazon|review|gift guide|linkup/i;
 
 /**
- * Fetch recipes from all RSS feeds.
+ * Fetch recipes from build-time static JSON.
  * Returns up to 20 recipes, shuffled daily.
  */
 export async function fetchRecipeFeeds() {
@@ -117,17 +44,7 @@ export async function fetchRecipeFeeds() {
     return _recipeCache;
   }
 
-  const allRecipes = [];
-
-  const fetches = RECIPE_FEEDS.map(async (feed) => {
-    const xml = await fetchWithProxy(feed.url);
-    return xml ? parseRecipeXml(xml, feed.name) : [];
-  });
-
-  const results = await Promise.allSettled(fetches);
-  for (const r of results) {
-    if (r.status === 'fulfilled') allRecipes.push(...r.value);
-  }
+  const allRecipes = await loadStaticRecipes();
 
   const filtered = allRecipes.filter(
     (r) => INCLUDE.test(r.title) && !EXCLUDE.test(r.title)

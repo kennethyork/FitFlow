@@ -138,60 +138,23 @@ const TAB_FILTERS = {
 };
 
 // ── CORS proxies for client-side fetching ──
-const CORS_PROXIES = [
-  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
-  (url) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-];
+// REMOVED — feeds are now pre-fetched at build time.
+// See scripts/fetch-feeds.mjs
 
 // ── Feed cache (15-minute TTL) ──
 const _feedCache = {};
 const CACHE_TTL = 15 * 60 * 1000;
 
-function parseRSSXml(xmlText, channelName) {
-  const parser = new DOMParser();
-  const doc = parser.parseFromString(xmlText, 'text/xml');
-  const entries = doc.querySelectorAll('entry');
-  const videos = [];
-
-  entries.forEach((entry) => {
-    const videoId = entry.querySelector('videoId')?.textContent
-      || entry.querySelector('yt\\:videoId')?.textContent
-      || '';
-    const title = entry.querySelector('title')?.textContent || '';
-    const published = entry.querySelector('published')?.textContent || '';
-    const thumbnail = videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : '';
-
-    if (videoId && title) {
-      videos.push({
-        id: `rss-${videoId}`,
-        videoId,
-        title,
-        channel: channelName,
-        thumbnail,
-        published,
-        embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}`,
-        lengthSeconds: 0,
-      });
-    }
-  });
-
-  return videos;
-}
-
-async function fetchWithProxy(url) {
-  // Race all proxies simultaneously for speed — skip direct (CORS-blocked from browser)
-  const attempts = CORS_PROXIES.map(async (makeProxy) => {
-    const res = await fetch(makeProxy(url), { signal: AbortSignal.timeout(5000) });
-    if (!res.ok) throw new Error('not ok');
-    const text = await res.text();
-    if (!text.includes('<feed') && !text.includes('<entry')) throw new Error('not xml');
-    return text;
-  });
+// ── Static feed data (loaded once from build-time JSON) ──
+let _staticFeeds = null;
+async function loadStaticFeeds() {
+  if (_staticFeeds) return _staticFeeds;
   try {
-    return await Promise.any(attempts);
-  } catch {
-    return null;
-  }
+    const base = import.meta.env.BASE_URL || '/';
+    const res = await fetch(`${base}data/youtube-feeds.json`);
+    if (res.ok) _staticFeeds = await res.json();
+  } catch { /* ignore */ }
+  return _staticFeeds || {};
 }
 
 // Deterministic daily shuffle — same videos per day, different on refresh next day
@@ -224,6 +187,7 @@ function filterVideos(videos, tabId) {
 
 /**
  * Fetch, filter, and shuffle videos for a category tab.
+ * Loads from build-time static JSON — no CORS proxies needed.
  * Returns up to 12 videos, shuffled deterministically per day.
  */
 export async function fetchCategoryVideos(category) {
@@ -232,19 +196,8 @@ export async function fetchCategoryVideos(category) {
     return cached.videos;
   }
 
-  const channels = CHANNELS[category] || [];
-  const allVideos = [];
-
-  const fetches = channels.map(async (ch) => {
-    const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${ch.id}`;
-    const xml = await fetchWithProxy(url);
-    return xml ? parseRSSXml(xml, ch.name) : [];
-  });
-
-  const results = await Promise.allSettled(fetches);
-  for (const r of results) {
-    if (r.status === 'fulfilled') allVideos.push(...r.value);
-  }
+  const feeds = await loadStaticFeeds();
+  const allVideos = feeds[category] || [];
 
   // Apply keyword filters, then deterministic daily shuffle, limit to 12
   const filtered = filterVideos(allVideos, category);

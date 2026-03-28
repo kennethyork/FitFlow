@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
+
 import './App.css';
 import useCoachAI from './useCoachAI';
 import OnboardingScreen from './OnboardingScreen';
@@ -20,6 +20,7 @@ const TABS = [
   { id: 'habits', icon: '✅', label: 'Habits' },
   { id: 'videos', icon: '🎬', label: 'Videos' },
   { id: 'coach', icon: '💬', label: 'Coach' },
+  { id: 'compare', icon: '⚖️', label: 'Compare' },
   { id: 'account', icon: '⚙️', label: 'Account' },
 ];
 
@@ -54,7 +55,7 @@ function App() {
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showLanding, setShowLanding] = useState(!isNative && !window.location.hash);
 
-  const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
+  const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach', 'compare'];
   const getHashTab = () => {
     const h = window.location.hash.replace('#', '');
     return VALID_TABS.includes(h) ? h : 'home';
@@ -1296,38 +1297,6 @@ function App() {
               )}
             </div>
 
-            {/* ── Calorie History Chart ── */}
-            {weeklySummary?.calorieByDay?.length > 1 && (
-              <div className="card chart-card">
-                <div className="card-title">📊 Calorie History (7 Days)</div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <BarChart data={weeklySummary.calorieByDay}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                    <XAxis dataKey="day" stroke="#aaa" fontSize={12} />
-                    <YAxis stroke="#aaa" fontSize={12} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
-                    <Bar dataKey="calories" fill="#4CAF50" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
-            {/* ── Weight Trend Chart ── */}
-            {weightLogs.length > 2 && (
-              <div className="card chart-card">
-                <div className="card-title">📈 Weight Trend</div>
-                <ResponsiveContainer width="100%" height={200}>
-                  <LineChart data={[...weightLogs].reverse().slice(-14).map(w => ({ date: new Date(w.loggedAt).toLocaleDateString('en', { month: 'short', day: 'numeric' }), weight: w.weight }))}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#333" />
-                    <XAxis dataKey="date" stroke="#aaa" fontSize={11} />
-                    <YAxis stroke="#aaa" fontSize={12} domain={['dataMin - 1', 'dataMax + 1']} />
-                    <Tooltip contentStyle={{ background: '#1a1a2e', border: '1px solid #333', borderRadius: 8 }} />
-                    <Line type="monotone" dataKey="weight" stroke="#FF9800" strokeWidth={2} dot={{ fill: '#FF9800', r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            )}
-
             {/* ── Weekly Summary ── */}
             {weeklySummary && (
               <div className="card weekly-summary-card">
@@ -1363,21 +1332,6 @@ function App() {
                     Weight this week: {weeklySummary.weightChange > 0 ? '+' : ''}{weeklySummary.weightChange} lbs
                   </div>
                 )}
-              </div>
-            )}
-
-            {/* ── Badges ── */}
-            {streakData?.badges && streakData.badges.length > 0 && (
-              <div className="card badges-card">
-                <div className="card-title">🏅 Badges</div>
-                <div className="badges-grid">
-                  {streakData.badges.map((badge, i) => (
-                    <div key={i} className={`badge-item ${badge.earned ? 'earned' : 'locked'}`}>
-                      <div className="badge-icon">{badge.earned ? badge.icon : '🔒'}</div>
-                      <div className="badge-name">{badge.name}</div>
-                    </div>
-                  ))}
-                </div>
               </div>
             )}
 
@@ -1985,6 +1939,200 @@ function App() {
               </button>
             </div>
           </>
+        )}
+
+        {/* ═══════ COMPARE TAB ═══════ */}
+        {tab === 'compare' && (
+          <div className="compare-tab">
+            <div className="card compare-intro-card">
+              <div className="card-title">⚖️ How FitFlow Compares</div>
+              <p className="compare-intro-text">
+                FitFlow is a free, open-source, privacy-first fitness tracker that runs entirely on your device.
+                Here&apos;s how it stacks up against popular fitness apps.
+              </p>
+            </div>
+
+            {/* Feature comparison table */}
+            <div className="card compare-table-card">
+              <div className="card-title">📊 Feature Comparison</div>
+              <div className="compare-scroll">
+                <table className="compare-table">
+                  <thead>
+                    <tr>
+                      <th>Feature</th>
+                      <th>FitFlow</th>
+                      <th>MyFitnessPal</th>
+                      <th>Cronometer</th>
+                      <th>wger</th>
+                      <th>OpenFit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <td>100% Free</td>
+                      <td className="yes">✅</td>
+                      <td className="partial">⚠️ Freemium</td>
+                      <td className="partial">⚠️ Freemium</td>
+                      <td className="yes">✅</td>
+                      <td className="partial">⚠️ Paid</td>
+                    </tr>
+                    <tr>
+                      <td>Open Source</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>No Account Required</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>Data Stays on Device</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌ Cloud</td>
+                      <td className="no">❌ Cloud</td>
+                      <td className="no">❌ Cloud</td>
+                      <td className="no">❌ Cloud</td>
+                    </tr>
+                    <tr>
+                      <td>AI Coach</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>Calorie Tracking</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                    <tr>
+                      <td>Macro Tracking</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                    <tr>
+                      <td>Habit Tracking</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="partial">⚠️ Basic</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>Water Tracking</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>Step Counter</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                    <tr>
+                      <td>Weight Tracking</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                    <tr>
+                      <td>Workout Videos</td>
+                      <td className="yes">✅</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                    <tr>
+                      <td>Recipe Generator</td>
+                      <td className="yes">✅</td>
+                      <td className="partial">⚠️ Premium</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>Works Offline</td>
+                      <td className="yes">✅</td>
+                      <td className="partial">⚠️ Limited</td>
+                      <td className="partial">⚠️ Limited</td>
+                      <td className="no">❌</td>
+                      <td className="no">❌</td>
+                    </tr>
+                    <tr>
+                      <td>No Ads</td>
+                      <td className="yes">✅</td>
+                      <td className="partial">⚠️ Has Ads</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                      <td className="yes">✅</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* App cards */}
+            <div className="card">
+              <div className="card-title">🔍 About the Apps</div>
+              <div className="compare-app-list">
+                <div className="compare-app-item">
+                  <div className="compare-app-name">🟢 FitFlow <span className="compare-badge oss">Open Source</span></div>
+                  <div className="compare-app-desc">Privacy-first, offline-capable fitness tracker with AI coach. No account, no ads, no data selling. All data stays on your device.</div>
+                </div>
+                <div className="compare-app-item">
+                  <div className="compare-app-name">MyFitnessPal <span className="compare-badge freemium">Freemium</span></div>
+                  <div className="compare-app-desc">One of the largest food databases. Freemium model — key features like macro goals and exercise logging require Premium ($19.99/mo). Collects and monetizes user data.</div>
+                </div>
+                <div className="compare-app-item">
+                  <div className="compare-app-name">Cronometer <span className="compare-badge freemium">Freemium</span></div>
+                  <div className="compare-app-desc">Excellent micronutrient tracking with a large verified food database. Gold plan ($8.99/mo) unlocks advanced features. Cloud-based with account required.</div>
+                </div>
+                <div className="compare-app-item">
+                  <div className="compare-app-name">wger <span className="compare-badge oss">Open Source</span></div>
+                  <div className="compare-app-desc">Free, open-source workout manager (Django/Python). Self-hostable with workout routines, body measurements, and nutrition. No AI coach or habit tracking.</div>
+                </div>
+                <div className="compare-app-item">
+                  <div className="compare-app-name">OpenFit <span className="compare-badge paid">Paid</span></div>
+                  <div className="compare-app-desc">Streaming fitness platform with guided workouts and nutrition plans. Subscription-based ($99.99/yr). Strong video library but closed source and requires internet.</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Why FitFlow */}
+            <div className="card compare-why-card">
+              <div className="card-title">💡 Why Choose FitFlow?</div>
+              <ul className="compare-why-list">
+                <li><strong>Your data, your device</strong> — nothing is sent to servers or sold to advertisers</li>
+                <li><strong>No subscription</strong> — every feature is free, forever</li>
+                <li><strong>AI coach built-in</strong> — personalized advice without a premium paywall</li>
+                <li><strong>Works offline</strong> — log meals and habits even without internet</li>
+                <li><strong>Open source</strong> — transparent, auditable, community-driven</li>
+                <li><strong>Lightweight</strong> — instant load, no bloat, no trackers</li>
+              </ul>
+            </div>
+          </div>
         )}
 
         {/* ═══════ ACCOUNT TAB ═══════ */}

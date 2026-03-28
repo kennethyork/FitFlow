@@ -12,6 +12,7 @@ import { generateTasks, currentPeriodKeys, pickCoachTask } from './taskGenerator
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
 import { fetchCategoryVideos, searchCachedVideos, VIDEO_CATEGORIES } from './youtubeRSS.js';
 import { fetchRecipeFeeds, pickDailyMeals } from './recipeRSS.js';
+import { generateRecipe } from './recipeGenerator.js';
 
 const TABS = [
   { id: 'home', icon: '🏠', label: 'Home' },
@@ -91,9 +92,18 @@ function App() {
   const [coachTyping, setCoachTyping] = useState(false);
   const { coachName, chat: aiChat } = useCoachAI(user?.id || 'local');
   const [mealSuggestions, setMealSuggestions] = useState(() => {
-    try { return JSON.parse(sessionStorage.getItem('ff_suggestions') || '[]'); } catch { return []; }
+    try {
+      const cached = JSON.parse(sessionStorage.getItem('ff_suggestions') || '[]');
+      for (const item of cached) {
+        if (!item.recipe) {
+          item.recipe = generateRecipe(item.name);
+        }
+      }
+      return cached;
+    } catch { return []; }
   });
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [expandedSuggestion, setExpandedSuggestion] = useState(null);
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
@@ -621,10 +631,10 @@ function App() {
         if (interleaved.length < 8 && fdcPool.length) interleaved.push(fdcPool.shift());
       }
 
-      // Ensure every suggestion has a recipe link
+      // Ensure every suggestion has a generated recipe
       for (const item of interleaved) {
-        if (!item.recipeUrl) {
-          item.recipeUrl = `https://www.google.com/search?q=${encodeURIComponent(item.name + ' recipe')}`;
+        if (!item.recipe) {
+          item.recipe = generateRecipe(item.name);
         }
       }
 
@@ -1460,17 +1470,37 @@ function App() {
               {mealSuggestions.length > 0 && (
                 <div className="suggestion-list">
                   {mealSuggestions.map((meal, i) => (
-                    <div key={i} className="suggestion-item">
-                      <div className="suggestion-header">
-                        {meal.name}
+                    <div key={i} className={`suggestion-item ${expandedSuggestion === i ? 'expanded' : ''}`}>
+                      <div className="suggestion-header" onClick={() => setExpandedSuggestion(expandedSuggestion === i ? null : i)} style={{ cursor: 'pointer' }}>
+                        <span>{meal.name}</span>
+                        <span className="suggestion-expand-icon">{expandedSuggestion === i ? '▲' : '▼'}</span>
                       </div>
                       <div className="suggestion-macros">
                         {meal.calories} kcal · {meal.protein}g P · {meal.carbs}g C · {meal.fat}g F
                         {meal.recipeSource ? ` · ${meal.recipeSource}` : ''}
                       </div>
+                      {expandedSuggestion === i && meal.recipe && (
+                        <div className="suggestion-recipe">
+                          <div className="recipe-section">
+                            <strong>Ingredients</strong>
+                            <ul>
+                              {meal.recipe.ingredients.map((ing, j) => (
+                                <li key={j}>{ing}</li>
+                              ))}
+                            </ul>
+                          </div>
+                          <div className="recipe-section">
+                            <strong>Directions</strong>
+                            <ol>
+                              {meal.recipe.steps.map((step, j) => (
+                                <li key={j}>{step}</li>
+                              ))}
+                            </ol>
+                          </div>
+                        </div>
+                      )}
                       <div className="suggestion-actions">
                         <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ Log</button>
-                        <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">📖 Recipe</a>
                       </div>
                     </div>
                   ))}

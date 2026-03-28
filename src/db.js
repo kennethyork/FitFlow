@@ -5,8 +5,10 @@ import { createRxDatabase, addRxPlugin } from 'rxdb/plugins/core';
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie';
 import { RxDBQueryBuilderPlugin } from 'rxdb/plugins/query-builder';
 import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv';
+import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 
 addRxPlugin(RxDBQueryBuilderPlugin);
+addRxPlugin(RxDBMigrationSchemaPlugin);
 
 // ── Schemas ──
 
@@ -27,7 +29,7 @@ const userProfileSchema = {
 };
 
 const foodLogSchema = {
-  version: 0,
+  version: 1,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -158,7 +160,12 @@ function today() {
 
 const collections = {
   profiles: { schema: userProfileSchema },
-  food_logs: { schema: foodLogSchema },
+  food_logs: {
+    schema: foodLogSchema,
+    migrationStrategies: {
+      1: (oldDoc) => ({ ...oldDoc, recipeUrl: '' }),
+    },
+  },
   habits: { schema: habitSchema },
   weight_logs: { schema: weightLogSchema },
   water_logs: { schema: waterLogSchema },

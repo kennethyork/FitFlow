@@ -71,6 +71,9 @@ const FOOD_DB_VERSION = '2026.03.28';
 // In-memory cache for instant search
 let _cache = [];
 let _ready = false;
+// True only after buildSearchIndex() has finished — until then, searchFoods
+// uses a linear scan so results are available as categories stream in.
+let _indexReady = false;
 
 // Prevents concurrent loadFoodDatabase calls from racing
 let _loadingPromise = null;
@@ -171,6 +174,7 @@ async function _doLoad(onProgress, _retry = false) {
     });
     _ready = true;
     buildSearchIndex();
+    _indexReady = true;
     onProgress?.({ status: 'done', loaded: _cache.length, total: _cache.length });
     return;
   }
@@ -228,6 +232,11 @@ async function _doLoad(onProgress, _retry = false) {
       _cache.push({ ...r, _lower: r.name.toLowerCase(), color: assignColor(r) });
     }
 
+    // Enable search as soon as the first batch of foods is available.
+    // The full binary-search index isn't built yet, so searchFoods will
+    // fall back to a linear scan until _indexReady is set below.
+    if (!_ready) _ready = true;
+
     loaded += foods.length;
     onProgress?.({ status: 'downloading', loaded, total, category });
   }
@@ -241,7 +250,7 @@ async function _doLoad(onProgress, _retry = false) {
     console.warn(`[foodDB] Skipping version write — ${insertErrors} insert error(s) detected; will retry on next load. If this persists, clear site data in browser settings.`);
   }
   buildSearchIndex();
-  _ready = true;
+  _indexReady = true;
   onProgress?.({ status: 'done', loaded, total });
 }
 
@@ -250,6 +259,34 @@ async function _doLoad(onProgress, _retry = false) {
 export function searchFoods(query, limit = 50) {
   const q = (query || '').trim().toLowerCase();
   if (q.length < MIN_SEARCH_LENGTH) return [];
+  // No data yet — first batch hasn't arrived; return empty rather than scanning nothing.
+  if (!_ready) return [];
+
+  // While the sorted index is still being built (first-download in progress),
+  // fall back to a linear scan so search is available from the first batch.
+  if (!_indexReady) {
+    const seen = new Set();
+    const results = [];
+    // Pass 1: full-name prefix
+    for (const food of _cache) {
+      if (food._lower.startsWith(q)) {
+        seen.add(food);
+        results.push(food);
+        if (results.length >= limit) return results;
+      }
+    }
+    // Pass 2: any-word prefix
+    for (const food of _cache) {
+      if (!seen.has(food)) {
+        const words = food._lower.split(/\s+/);
+        if (words.some((w) => w.startsWith(q))) {
+          results.push(food);
+          if (results.length >= limit) return results;
+        }
+      }
+    }
+    return results;
+  }
 
   const seen = new Set();
   const results = [];
@@ -336,5 +373,6 @@ export async function clearFoodDatabase() {
   _cache = [];
   _wordIndex = [];
   _ready = false;
+  _indexReady = false;
   _loadingPromise = null;
 }

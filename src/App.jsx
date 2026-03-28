@@ -50,7 +50,7 @@ function difficultyClass(d) {
 function App() {
   const [user, setUser] = useState(null);
   const [showOnboarding, setShowOnboarding] = useState(false);
-  const [showLanding, setShowLanding] = useState(() => !localStorage.getItem('fitflow_launched'));
+  const [showLanding, setShowLanding] = useState(true);
 
   const VALID_TABS = ['home', 'food', 'habits', 'videos', 'coach'];
   const getHashTab = () => {
@@ -182,7 +182,7 @@ function App() {
   // Completed tasks are preserved (archived), only uncompleted ones are replaced.
   const refreshAutoTasks = async (profile, existingHabits) => {
     const periods = currentPeriodKeys();
-    const stored = JSON.parse(localStorage.getItem('ff_taskPeriods') || '{}');
+    const stored = (await db.getSetting('ff_taskPeriods')) || {};
     const { daily, weekly, monthly } = generateTasks(profile);
     let allHabits = [...existingHabits];
     let changed = false;
@@ -240,7 +240,7 @@ function App() {
       setHabits(allHabits);
     }
     // Always persist period keys so next load skips refresh
-    localStorage.setItem('ff_taskPeriods', JSON.stringify(periods));
+    await db.setSetting('ff_taskPeriods', periods);
   };
 
   // Load all data from local RxDB (guarded against StrictMode double-mount)
@@ -250,6 +250,10 @@ function App() {
     (async () => {
       try {
         setLoading(true);
+
+        // Check if user has seen the landing page
+        const launched = await db.getSetting('fitflow_launched');
+        if (launched) setShowLanding(false);
 
         // Load or create profile
         let profile = await db.getProfile();
@@ -286,11 +290,18 @@ function App() {
         setWeeklySummary(weeklyData);
 
         // Generate/refresh daily, weekly, monthly tasks
-        refreshAutoTasks(profile, habitsData).catch((err) => {
-          console.error('refreshAutoTasks failed:', err);
-          // Fallback: generate tasks locally and show them even if DB insert fails
-          if (habitsData.length === 0) {
-            const { daily, weekly, monthly } = generateTasks(profile);
+        // If DB is fresh (no habits), seed immediately so UI shows tasks without waiting
+        if (habitsData.length === 0) {
+          const { daily, weekly, monthly } = generateTasks(profile);
+          const seeded = [];
+          for (const t of daily) { try { seeded.push(await db.addHabit({ title: t, source: 'daily' })); } catch {} }
+          for (const t of weekly) { try { seeded.push(await db.addHabit({ title: t, source: 'weekly' })); } catch {} }
+          for (const t of monthly) { try { seeded.push(await db.addHabit({ title: t, source: 'monthly' })); } catch {} }
+          if (seeded.length > 0) {
+            setHabits(seeded);
+            await db.setSetting('ff_taskPeriods', currentPeriodKeys());
+          } else {
+            // DB insert failed entirely — show in-memory fallback
             const fallback = [
               ...daily.map((t, i) => ({ id: `fb-d${i}`, title: t, completed: false, source: 'daily' })),
               ...weekly.map((t, i) => ({ id: `fb-w${i}`, title: t, completed: false, source: 'weekly' })),
@@ -298,7 +309,9 @@ function App() {
             ];
             setHabits(fallback);
           }
-        });
+        } else {
+          refreshAutoTasks(profile, habitsData).catch(console.error);
+        }
 
         // Load food reference database in background
         loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
@@ -381,10 +394,7 @@ function App() {
         loggedAt: new Date().toISOString(),
       };
       setProgressPhotos(prev => [photo, ...prev]);
-      // Store in localStorage (RxDB doesn't handle blobs well)
-      const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
-      stored.unshift(photo);
-      localStorage.setItem('fitflow_photos', JSON.stringify(stored.slice(0, 50)));
+      db.addPhoto(photo).catch(console.error);
       setPhotoFile(null);
       setPhotoNote('');
     };
@@ -394,8 +404,7 @@ function App() {
   const deleteProgressPhoto = (id) => {
     hapticWarning();
     setProgressPhotos(prev => prev.filter(p => p.id !== id));
-    const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
-    localStorage.setItem('fitflow_photos', JSON.stringify(stored.filter(p => p.id !== id)));
+    db.deletePhoto(id).catch(console.error);
   };
 
   // ── Step handlers ──
@@ -420,9 +429,8 @@ function App() {
   // Init native status bar + auto-sync steps + live pedometer
   useEffect(() => {
     initStatusBar();
-    // Load progress photos from localStorage
-    const stored = JSON.parse(localStorage.getItem('fitflow_photos') || '[]');
-    setProgressPhotos(stored);
+    // Load progress photos from RxDB
+    db.getPhotos().then(photos => setProgressPhotos(photos)).catch(console.error);
     // Auto sync steps from pedometer when native
     if (isNative) {
       readNativeSteps().then(({ steps }) => {
@@ -842,7 +850,7 @@ function App() {
   }, [tab, activeVideoTab]);
 
   if (showLanding) {
-    return <LandingPage onLaunch={() => { localStorage.setItem('fitflow_launched', '1'); setShowLanding(false); }} />;
+    return <LandingPage onLaunch={() => { db.setSetting('fitflow_launched', '1'); setShowLanding(false); }} />;
   }
 
   if (!user) {

@@ -148,6 +148,32 @@ const recipeSchema = {
   required: ['id', 'name'],
 };
 
+// Key-value store for app settings (task periods, launched flag, etc.)
+const settingSchema = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: 100 },
+    value: { type: 'string' },
+  },
+  required: ['id'],
+};
+
+// Progress photos (base64 stored as string)
+const photoSchema = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: 100 },
+    imageUrl: { type: 'string' },
+    note: { type: 'string' },
+    loggedAt: { type: 'string', maxLength: 30 },
+  },
+  required: ['id'],
+};
+
 // ── Database singleton (survives HMR + Strict Mode double-invoke) ──
 
 function uid() {
@@ -173,6 +199,8 @@ const collections = {
   chat_messages: { schema: chatMessageSchema },
   favorite_meals: { schema: favoriteMealSchema },
   recipes: { schema: recipeSchema },
+  settings: { schema: settingSchema },
+  photos: { schema: photoSchema },
 };
 
 async function initDB() {
@@ -183,7 +211,7 @@ async function initDB() {
     _warn.apply(console, args);
   };
   const db = await createRxDatabase({
-    name: 'fitflow4',
+    name: 'fitflow5',
     storage: getRxStorageDexie(),
     multiInstance: false,
     closeDuplicates: true,
@@ -195,10 +223,10 @@ async function initDB() {
     // If migration fails, destroy and recreate DB fresh
     await db.destroy();
     // Remove the old Dexie database so we start clean
-    const delReq = indexedDB.deleteDatabase('fitflow4');
+    const delReq = indexedDB.deleteDatabase('fitflow5');
     await new Promise((res, rej) => { delReq.onsuccess = res; delReq.onerror = rej; });
     const db2 = await createRxDatabase({
-      name: 'fitflow4',
+      name: 'fitflow5',
       storage: getRxStorageDexie(),
       multiInstance: false,
       closeDuplicates: true,
@@ -591,6 +619,52 @@ export async function getStreaks() {
   return { currentStreak: streak, badges };
 }
 
+// ── Settings (key-value) ──
+
+export async function getSetting(key) {
+  const db = await getDB();
+  const doc = await db.settings.findOne(key).exec();
+  if (!doc) return null;
+  try { return JSON.parse(doc.value); } catch { return doc.value; }
+}
+
+export async function setSetting(key, value) {
+  const db = await getDB();
+  const existing = await db.settings.findOne(key).exec();
+  const val = typeof value === 'string' ? value : JSON.stringify(value);
+  if (existing) {
+    await existing.incrementalPatch({ value: val });
+  } else {
+    await db.settings.insert({ id: key, value: val });
+  }
+}
+
+// ── Progress Photos ──
+
+export async function getPhotos() {
+  const db = await getDB();
+  const docs = await db.photos.find().exec();
+  return docs.map(d => d.toJSON()).sort((a, b) => (b.loggedAt || '').localeCompare(a.loggedAt || ''));
+}
+
+export async function addPhoto(data) {
+  const db = await getDB();
+  const id = data.id || uid();
+  await db.photos.insert({
+    id,
+    imageUrl: data.imageUrl || '',
+    note: data.note || '',
+    loggedAt: data.loggedAt || new Date().toISOString(),
+  });
+  return (await db.photos.findOne(id).exec()).toJSON();
+}
+
+export async function deletePhoto(id) {
+  const db = await getDB();
+  const doc = await db.photos.findOne(id).exec();
+  if (doc) await doc.remove();
+}
+
 // ── Reset all data ──
 
 export async function clearAllData() {
@@ -605,5 +679,7 @@ export async function clearAllData() {
     db.chat_messages.find().remove(),
     db.favorite_meals.find().remove(),
     db.recipes.find().remove(),
+    db.settings.find().remove(),
+    db.photos.find().remove(),
   ]);
 }

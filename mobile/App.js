@@ -281,7 +281,7 @@ export default function App() {
   }, []);
 
   return (
-    <View style={[styles.container, { backgroundColor: bgColor }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: bgColor }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} backgroundColor={bgColor} />
 
       {/* Native YouTube Player Overlay */}
@@ -350,7 +350,7 @@ export default function App() {
           </View>
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 

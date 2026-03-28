@@ -1266,7 +1266,7 @@ input[type="number"] { -moz-appearance: textfield; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #000;
+  background: var(--bg);
   padding: 20px;
 }
 .onboarding-card {
@@ -1618,6 +1618,11 @@ input[type="number"] { -moz-appearance: textfield; }
   font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.5px;
+}
+.landing-nav-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 .landing-nav-link {
   font-size: 14px;

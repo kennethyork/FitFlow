@@ -1365,7 +1365,7 @@ function App() {
             {foodDbProgress && foodDbProgress.status !== 'done' && (
               <div className="card" style={{ padding: '12px 16px', marginBottom: 12, textAlign: 'center', fontSize: 13, color: 'var(--text-muted)' }}>
                 {foodDbProgress.status === 'cache' ? '⏳ Loading food database...' : (
-                  <>⏳ Downloading food database... {foodDbProgress.loaded?.toLocaleString()} / {foodDbProgress.total?.toLocaleString()} foods</>
+                  <>🔍 Search available — {foodDbProgress.loaded?.toLocaleString()} / {foodDbProgress.total?.toLocaleString()} foods loaded</>
                 )}
                 {foodDbProgress.total > 0 && (
                   <div style={{ marginTop: 6, height: 4, background: 'var(--bg-secondary)', borderRadius: 2, overflow: 'hidden' }}>

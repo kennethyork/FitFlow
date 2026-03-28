@@ -72,6 +72,48 @@ const FOOD_DB_VERSION = '2026.03.27';
 let _cache = [];
 let _ready = false;
 
+// Minimum characters required for a query / word entry to be indexed
+const MIN_SEARCH_LENGTH = 2;
+
+// Sorted word-level index for fast prefix lookups: [word, cacheIndex][]
+let _wordIndex = [];
+
+// Binary search: first position in _cache where _lower >= q
+function lowerBound(q) {
+  let lo = 0, hi = _cache.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (_cache[mid]._lower < q) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Binary search: first position in _wordIndex where entry[0] >= q
+function wordLowerBound(q) {
+  let lo = 0, hi = _wordIndex.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (_wordIndex[mid][0] < q) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+// Build search indexes after _cache is fully populated.
+// Sorts _cache in-place and creates the word-level index.
+function buildSearchIndex() {
+  _cache.sort((a, b) => (a._lower < b._lower ? -1 : a._lower > b._lower ? 1 : 0));
+  const entries = [];
+  for (let i = 0; i < _cache.length; i++) {
+    for (const word of _cache[i]._lower.split(/\s+/)) {
+      if (word.length >= MIN_SEARCH_LENGTH) entries.push([word, i]);
+    }
+  }
+  entries.sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+  _wordIndex = entries;
+}
+
 export const FOOD_CATEGORIES = [
   'Baby Foods', 'Beverages', 'Condiments', 'Dairy & Eggs', 'Fast Food',
   'Fruits', 'Grains & Bakery', 'Legumes', 'Meat', 'Nuts & Seeds',
@@ -108,6 +150,7 @@ export async function loadFoodDatabase(onProgress) {
       return { ...f, _lower: f.name.toLowerCase(), color: assignColor(f) };
     });
     _ready = true;
+    buildSearchIndex();
     onProgress?.({ status: 'done', loaded: _cache.length, total: _cache.length });
     return;
   }
@@ -158,6 +201,7 @@ export async function loadFoodDatabase(onProgress) {
   }
 
   await db.meta.upsert({ key: 'version', value: FOOD_DB_VERSION });
+  buildSearchIndex();
   _ready = true;
   onProgress?.({ status: 'done', loaded, total });
 }
@@ -166,23 +210,32 @@ export async function loadFoodDatabase(onProgress) {
 
 export function searchFoods(query, limit = 50) {
   const q = (query || '').trim().toLowerCase();
-  if (q.length < 2) return [];
+  if (q.length < MIN_SEARCH_LENGTH) return [];
 
+  const seen = new Set();
   const results = [];
-  // Prefer prefix matches first
-  for (const f of _cache) {
-    if (f._lower.startsWith(q)) {
-      results.push(f);
+
+  // Phase 1: full-name prefix matches — binary search O(log n + k)
+  let si = lowerBound(q);
+  while (si < _cache.length && _cache[si]._lower.startsWith(q)) {
+    seen.add(si);
+    results.push(_cache[si]);
+    if (results.length >= limit) return results;
+    si++;
+  }
+
+  // Phase 2: any-word prefix matches — binary search on word index O(log m + j)
+  let wi = wordLowerBound(q);
+  while (wi < _wordIndex.length && _wordIndex[wi][0].startsWith(q)) {
+    const ci = _wordIndex[wi][1];
+    if (!seen.has(ci)) {
+      seen.add(ci);
+      results.push(_cache[ci]);
       if (results.length >= limit) return results;
     }
+    wi++;
   }
-  // Then contains matches
-  for (const f of _cache) {
-    if (!f._lower.startsWith(q) && f._lower.includes(q)) {
-      results.push(f);
-      if (results.length >= limit) return results;
-    }
-  }
+
   return results;
 }
 
@@ -242,5 +295,6 @@ export async function clearFoodDatabase() {
   await db.foods.find().remove();
   await db.meta.find().remove();
   _cache = [];
+  _wordIndex = [];
   _ready = false;
 }

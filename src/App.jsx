@@ -1151,7 +1151,7 @@ function App() {
                   <option value="lbs">lbs</option>
                   <option value="kg">kg</option>
                 </select>
-                <button className="btn btn-primary btn-sm" onClick={logWeight}>Log</button>
+                <button className="btn btn-primary btn-sm" style={{ flexShrink: 0 }} onClick={logWeight}>Log</button>
               </div>
               {weightLogs.length > 0 && (
                 <>

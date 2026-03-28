@@ -28,22 +28,23 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
         </h1>
         <p className="landing-subtitle">
           FitFlow is a free, open-source fitness &amp; nutrition tracker that
-          runs entirely in your browser. No accounts, no servers, no
-          subscriptions&nbsp;— 100% private.
+          runs in your browser, with optional public food lookups when you
+          search. No accounts, no subscriptions, and your personal tracking
+          data stays on your device.
         </p>
         <button className="landing-cta" onClick={onLaunch}>
           Launch App &rarr;
         </button>
-        <p className="landing-note">No sign-up required. Works offline.</p>
+        <p className="landing-note">No sign-up required. Your tracking data stays on your device.</p>
       </section>
 
       <section className="landing-features">
         <div className="landing-feature-card">
           <span className="landing-feature-icon">🍽️</span>
-          <h3>388,000+ Foods</h3>
+          <h3>Live Food Search</h3>
           <p>
-            USDA FoodData Central database built-in. Search branded, generic,
-            and restaurant foods instantly.
+            Search Open Food Facts directly from the app for branded and
+            packaged foods without downloading a huge local database first.
           </p>
         </div>
         <div className="landing-feature-card">
@@ -82,8 +83,9 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
           <span className="landing-feature-icon">🔒</span>
           <h3>100% Private</h3>
           <p>
-            All data stays in your browser via IndexedDB. Nothing is ever sent
-            to a server.
+            Your logs, profile, habits, and photos stay in your browser via
+            IndexedDB. Food lookups use a public food database only when you
+            search.
           </p>
         </div>
       </section>
@@ -94,7 +96,7 @@ export default function LandingPage({ onLaunch, theme, setTheme }) {
           <span className="landing-pill">React</span>
           <span className="landing-pill">RxDB</span>
           <span className="landing-pill">Vite</span>
-          <span className="landing-pill">USDA FDC</span>
+          <span className="landing-pill">Open Food Facts</span>
           <span className="landing-pill">IndexedDB</span>
           <span className="landing-pill">GitHub Pages</span>
         </div>

@@ -76,6 +76,7 @@ function App() {
   const [mealProtein, setMealProtein] = useState('');
   const [mealCarbs, setMealCarbs] = useState('');
   const [mealFat, setMealFat] = useState('');
+  const [mealRecipeUrl, setMealRecipeUrl] = useState('');
 
   const [editingLog, setEditingLog] = useState(null);
   const [editMeal, setEditMeal] = useState('');
@@ -142,6 +143,10 @@ function App() {
   const [streakData, setStreakData] = useState(null);
   // Weekly summary
   const [weeklySummary, setWeeklySummary] = useState(null);
+
+  // Saved recipes modal
+  const [showSavedRecipes, setShowSavedRecipes] = useState(false);
+  const [savedRecipes, setSavedRecipes] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
@@ -449,6 +454,7 @@ function App() {
       protein: parseInt(mealProtein, 10) || 0,
       carbs: parseInt(mealCarbs, 10) || 0,
       fat: parseInt(mealFat, 10) || 0,
+      recipeUrl: mealRecipeUrl || '',
     });
     setLogs(prev => [newLog, ...prev]);
     setMeal('');
@@ -456,6 +462,7 @@ function App() {
     setMealProtein('');
     setMealCarbs('');
     setMealFat('');
+    setMealRecipeUrl('');
   };
 
   const logRecipe = async (recipe) => {
@@ -466,6 +473,7 @@ function App() {
       protein: recipe.protein,
       carbs: recipe.carbs,
       fat: recipe.fat,
+      recipeUrl: recipe.recipeUrl || '',
     });
     setLogs(prev => [newLog, ...prev]);
   };
@@ -596,6 +604,7 @@ function App() {
     setMealProtein(String(meal.protein || ''));
     setMealCarbs(String(meal.carbs || ''));
     setMealFat(String(meal.fat || ''));
+    setMealRecipeUrl(meal.recipeUrl || '');
 
     // Save RSS recipes to user's recipe collection for future reference
     if (meal.recipeUrl) {
@@ -627,7 +636,25 @@ function App() {
           ? `View full recipe: ${meal.recipeUrl}\n\nSource: ${meal.recipeSource || ''}\n${meal.recipeDescription || ''}`
           : '',
       });
-    } catch { /* ignore dupes */ }
+      setMealSuggestions(prev => prev.map(m =>
+        m === meal ? { ...m, _saved: true } : m
+      ));
+    } catch {
+      setMealSuggestions(prev => prev.map(m =>
+        m === meal ? { ...m, _saved: true } : m
+      ));
+    }
+  };
+
+  const openSavedRecipes = async () => {
+    const recipes = await db.getRecipes();
+    setSavedRecipes(recipes);
+    setShowSavedRecipes(true);
+  };
+
+  const deleteSavedRecipe = async (id) => {
+    await db.deleteRecipe(id);
+    setSavedRecipes(prev => prev.filter(r => r.id !== id));
   };
 
   // ── Streaks & Badges ──
@@ -690,67 +717,9 @@ function App() {
       // Detect if user asked for a task/habit and auto-assign one
       const askPatterns = /assign|give me|suggest.*task|add.*task|add.*habit|new.*task|daily.*task|challenge|set.*goal|recommend|what should i do/i;
       if (askPatterns.test(q)) {
-        // Extract a meaningful, actionable task from the AI response
-        let taskTitle = '';
-        const actionVerbRe = /^(try|aim|focus|start|drink|eat|walk|do|track|log|get|take|make|go|plan|add|avoid|replace|prepare|complete|stretch|hit|run|swim|limit|cut|skip|cook|practice|sleep|spend|work|perform|set|squat|bench|deadlift)/i;
-        // Reject sentences that are clearly conversational filler, not tasks
-        const fillerRe = /^(here|i('d| would| can| recommend| suggest)|that'?s|sure|okay|great|absolutely|of course|no problem|happy|glad|let me|you (can|should|could|might|may)|it'?s|the (best|key|most|first))/i;
-
-        // Split the whole response into clean sentences
-        const allSentences = answer
-          .replace(/\n+/g, ' ')
-          .split(/(?<=[.!?])\s+/)
-          .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
-          .filter(s => s.length > 10 && s.length < 100);
-
-        // Strategy 1: If response lists items after a colon, pick one that looks actionable
-        const colonIdx = answer.indexOf(':');
-        if (colonIdx !== -1 && colonIdx < answer.length - 10) {
-          const afterColon = answer.slice(colonIdx + 1).split(/[.!?]/)[0];
-          const items = afterColon.split(',')
-            .map(s => s.replace(/^[-•*\d.)\s]+/, '').trim())
-            .filter(s => s.length > 10 && s.length < 80)
-            .map(s => s.replace(/^(and|or)\s+/i, '').trim())
-            .filter(s => actionVerbRe.test(s) || !fillerRe.test(s));
-          if (items.length > 0) {
-            taskTitle = items[Math.floor(Math.random() * Math.min(items.length, 4))];
-          }
-        }
-
-        // Strategy 2: Find ANY sentence in the response starting with an action verb
-        if (!taskTitle) {
-          const actionSentences = allSentences.filter(s => actionVerbRe.test(s));
-          if (actionSentences.length > 0) {
-            taskTitle = actionSentences[Math.floor(Math.random() * Math.min(actionSentences.length, 3))].replace(/[.!?]+$/, '');
-          }
-        }
-
-        // Strategy 3: Find a sentence that at least contains an action verb (not just starts with one)
-        if (!taskTitle) {
-          const containsAction = allSentences.filter(s =>
-            !fillerRe.test(s) && /\b(try|drink|eat|walk|do|track|log|take|make|go|plan|add|avoid|prepare|complete|stretch|run|swim|cook|sleep|workout|exercise)\b/i.test(s)
-          );
-          if (containsAction.length > 0) {
-            taskTitle = containsAction[0].replace(/[.!?]+$/, '');
-          }
-        }
-
-        // Strategy 4: Goal-appropriate fallback instead of grabbing random first sentence
-        if (!taskTitle) {
-          const fallbacks = {
-            lose: ['Take a 30-minute walk today', 'Track all your meals today', 'Drink 8 glasses of water', 'Do a 15-minute bodyweight workout', 'Skip sugary drinks today'],
-            gain: ['Do a strength training session', 'Eat 5 meals today', 'Drink a protein shake', 'Hit your protein goal today', 'Do compound lifts today'],
-            maintain: ['Do 20 minutes of exercise', 'Eat a balanced meal', 'Take a 30-minute walk', 'Track all meals today', 'Drink 8 glasses of water'],
-          };
-          const goal = user?.goalType || 'maintain';
-          const pool = fallbacks[goal] || fallbacks.maintain;
-          taskTitle = pool[Math.floor(Math.random() * pool.length)];
-        }
-
-        // Clean up filler prefixes and capitalize
-        taskTitle = taskTitle.replace(/^(sure!?\s*|here'?s?\s*|okay!?\s*|great[^a-z]*|i suggest\s*|try this:?\s*|focus on:?\s*|you should\s*|i('d)? recommend\s*(that\s*you\s*)?)/i, '').trim();
-        taskTitle = taskTitle.charAt(0).toUpperCase() + taskTitle.slice(1);
-        if (taskTitle.length < 5) taskTitle = 'Complete a 10-minute workout';
+        // Pick a relevant, actionable task based on what the user asked about
+        const existingTitles = habits.map(h => h.title || '');
+        const taskTitle = pickCoachTask(q, user?.goalType || 'maintain', existingTitles);
         try {
           const newTask = await db.addHabit({ title: taskTitle, source: 'coach' });
           setHabits((prev) => [...prev, newTask]);
@@ -1449,6 +1418,7 @@ function App() {
                     ✕ Clear
                   </button>
                 )}
+                <button className="btn btn-secondary" onClick={openSavedRecipes}>📖 Saved</button>
               </div>
               {mealSuggestions.length > 0 && (
                 <div className="suggestion-list">
@@ -1466,7 +1436,7 @@ function App() {
                       )}
                       <div className="suggestion-actions">
                         <button className="btn btn-small" onClick={() => logSuggestion(meal)}>+ Log</button>
-                        <button className="btn btn-small" onClick={() => saveSuggestion(meal)}>💾 Save</button>
+                        <button className="btn btn-small" onClick={() => saveSuggestion(meal)} disabled={meal._saved}>{meal._saved ? '✅ Saved' : '💾 Save'}</button>
                         {meal.recipeUrl && <a className="btn btn-small btn-recipe" href={meal.recipeUrl} target="_blank" rel="noopener noreferrer">📖 Recipe</a>}
                       </div>
                     </div>
@@ -1534,6 +1504,7 @@ function App() {
                       </div>
                       <div className="meal-cals">{log.calories}</div>
                       <div className="meal-actions">
+                        {log.recipeUrl && <a className="meal-action-btn" title="View Recipe" href={log.recipeUrl} target="_blank" rel="noopener noreferrer">📖</a>}
                         <button className="meal-action-btn" title="Edit" onClick={() => startEditLog(log)}>✏️</button>
                         {confirmDelete === log.id ? (
                           <>
@@ -1829,6 +1800,44 @@ function App() {
 
       {/* Bottom Tab Bar — mobile only */}
       <nav className="tab-bar">
+
+      {/* Saved Recipes Modal */}
+      {showSavedRecipes && (
+        <div className="recipes-overlay" onClick={() => setShowSavedRecipes(false)}>
+          <div className="recipes-sheet" onClick={(e) => e.stopPropagation()}>
+            <div className="recipes-header">
+              <h2>📖 Saved Recipes</h2>
+              <button className="close-btn" onClick={() => setShowSavedRecipes(false)}>✕</button>
+            </div>
+            {savedRecipes.length === 0 ? (
+              <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: '24px 0' }}>
+                No saved recipes yet. Save meals from suggestions to see them here.
+              </p>
+            ) : (
+              <div className="recipes-list">
+                {savedRecipes.map((recipe) => {
+                  const recipeUrl = recipe.instructions?.match(/View full recipe: (\S+)/)?.[1];
+                  return (
+                    <div className="recipe-item" key={recipe.id}>
+                      <div className="recipe-item-info">
+                        <div className="recipe-item-name">{recipe.name}</div>
+                        <div className="recipe-item-macros">
+                          {recipe.calories} kcal · {recipe.protein}g P · {recipe.carbs}g C · {recipe.fat}g F
+                        </div>
+                      </div>
+                      <div className="recipe-item-actions">
+                        <button className="btn btn-small" onClick={() => { logRecipe(recipe); setShowSavedRecipes(false); }}>+ Log</button>
+                        {recipeUrl && <a className="btn btn-small btn-recipe" href={recipeUrl} target="_blank" rel="noopener noreferrer">🔗 Open</a>}
+                        <button className="btn btn-small btn-danger" onClick={() => deleteSavedRecipe(recipe.id)}>🗑️</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
         {TABS.map((t) => (
           <button
             key={t.id}

@@ -37,6 +37,7 @@ const foodLogSchema = {
     protein: { type: 'number' },
     carbs: { type: 'number' },
     fat: { type: 'number' },
+    recipeUrl: { type: 'string' },
     loggedAt: { type: 'string', maxLength: 30 },
   },
   required: ['id', 'meal', 'loggedAt'],
@@ -250,6 +251,7 @@ export async function addFoodLog(data) {
     protein: data.protein || 0,
     carbs: data.carbs || 0,
     fat: data.fat || 0,
+    recipeUrl: data.recipeUrl || '',
     loggedAt: new Date().toISOString(),
   });
   return doc.toJSON();

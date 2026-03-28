@@ -187,9 +187,16 @@ async function _doLoad(onProgress, _retry = false) {
   let idCounter = 0;
   let insertErrors = 0;
 
-  for (const [category, info] of categories) {
-    const catResp = await fetch(`${BASE}data/foods/${info.file}`);
-    const foods = await catResp.json();
+  // Start all category fetches in parallel so they download concurrently
+  const fetchPromises = categories.map(([category, info]) =>
+    fetch(`${BASE}data/foods/${info.file}`)
+      .then((r) => r.json())
+      .catch((err) => { throw new Error(`[foodDB] Failed to fetch "${category}" (${info.file}): ${err.message}`); })
+  );
+
+  for (let i = 0; i < categories.length; i++) {
+    const category = categories[i][0];
+    const foods = await fetchPromises[i];
 
     const records = foods.map((f) => ({
       id: String(idCounter++),

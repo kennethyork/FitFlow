@@ -904,6 +904,9 @@ function App() {
   };
 
   useEffect(() => {
+    if (tab === 'food' && !isFoodDBReady()) {
+      loadFoodDatabase((p) => setFoodDbProgress(p)).catch(console.error);
+    }
     if (tab === 'videos') {
       if (videoTabs.length === 0) loadVideoTabs();
       loadBrowseVideos(activeVideoTab);

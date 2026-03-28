@@ -4,7 +4,7 @@
 
 No accounts. No servers. No subscriptions. Your data stays on your device.
 
-**[Launch the Web App](https://kennethyork.github.io/FitFlow/)**
+**[Launch the Web App](https://fitflow.kennethyork.com/)**
 
 ---
 
@@ -25,7 +25,7 @@ FitFlow is a personal fitness and nutrition companion that runs entirely on your
 
 ## Platforms
 
-- **Web** — Visit [kennethyork.github.io/FitFlow](https://kennethyork.github.io/FitFlow/) in any modern browser. Works offline as a PWA.
+- **Web** — Visit [fitflow.kennethyork.com](https://fitflow.kennethyork.com/) in any modern browser. Works offline as a PWA.
 - **Android** — Native app with access to device pedometer, camera, haptics, notifications, and share.
 
 ## Mobile Features

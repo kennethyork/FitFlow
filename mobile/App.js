@@ -1,5 +1,5 @@
 import { useRef, useEffect, useState } from 'react';
-import { StyleSheet, View, BackHandler, Share, ActivityIndicator } from 'react-native';
+import { StyleSheet, View, BackHandler, Share, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { StatusBar } from 'expo-status-bar';
 import { Pedometer } from 'expo-sensors';
@@ -8,13 +8,9 @@ import * as Haptics from 'expo-haptics';
 import * as Notifications from 'expo-notifications';
 
 // ── Config ──
-// For dev: 'http://10.0.2.2:5173' (emulator) or 'http://192.168.x.x:5173' (real device)
-// For production: your GitHub Pages URL
-const DEV_URL = 'http://10.0.2.2:5173'; // Android emulator
-// const DEV_URL = 'http://192.168.1.X:5173'; // Uncomment for real device (use your local IP)
-const WEB_APP_URL = __DEV__
-  ? DEV_URL
-  : 'https://kennethyork.github.io/FitFlow/';
+const PROD_URL = 'https://fitflow.kennethyork.com/';
+const DEV_URL = 'http://192.168.1.67:5173/'; // Your LAN IP for real device dev
+const WEB_APP_URL = __DEV__ ? DEV_URL : PROD_URL;
 
 // Configure notifications
 Notifications.setNotificationHandler({
@@ -29,6 +25,7 @@ export default function App() {
   const webviewRef = useRef(null);
   const pedometerSub = useRef(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
   // Handle Android back button → go back in WebView history
   useEffect(() => {
@@ -261,12 +258,25 @@ export default function App() {
   return (
     <View style={styles.container}>
       <StatusBar style="light" backgroundColor="#0f1117" />
+      {error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorEmoji}>⚠️</Text>
+          <Text style={styles.errorTitle}>Can't load FitFlow</Text>
+          <Text style={styles.errorText}>{error}</Text>
+          <Text style={styles.errorUrl}>{WEB_APP_URL}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={() => { setError(null); webviewRef.current?.reload(); }}>
+            <Text style={styles.retryText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
       <WebView
         ref={webviewRef}
         source={{ uri: WEB_APP_URL }}
-        style={styles.webview}
+        style={[styles.webview, error ? { display: 'none' } : null]}
         onMessage={onMessage}
         onLoadEnd={() => setLoading(false)}
+        onError={(e) => setError(e.nativeEvent.description || 'Unknown error')}
+        onHttpError={(e) => setError(`HTTP ${e.nativeEvent.statusCode}: ${e.nativeEvent.description || e.nativeEvent.url}`)}
         injectedJavaScriptBeforeContentLoaded={injectedJS}
         javaScriptEnabled={true}
         domStorageEnabled={true}
@@ -304,4 +314,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#0f1117',
   },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#0f1117',
+    padding: 32,
+  },
+  errorEmoji: { fontSize: 48, marginBottom: 16 },
+  errorTitle: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 8 },
+  errorText: { color: '#aaa', fontSize: 14, textAlign: 'center', marginBottom: 8 },
+  errorUrl: { color: '#6c5ce7', fontSize: 12, marginBottom: 24 },
+  retryBtn: {
+    backgroundColor: '#6c5ce7',
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+  },
+  retryText: { color: '#fff', fontSize: 16, fontWeight: '600' },
 });

@@ -215,7 +215,7 @@ async function initDB() {
     _warn.apply(console, args);
   };
   const db = await createRxDatabase({
-    name: 'fitflow6',
+    name: 'fitflow7',
     storage: getRxStorageDexie(),
     multiInstance: false,
     closeDuplicates: true,
@@ -227,10 +227,10 @@ async function initDB() {
     // If migration fails, destroy and recreate DB fresh
     await db.destroy();
     // Remove the old Dexie database so we start clean
-    const delReq = indexedDB.deleteDatabase('fitflow6');
+    const delReq = indexedDB.deleteDatabase('fitflow7');
     await new Promise((res, rej) => { delReq.onsuccess = res; delReq.onerror = rej; });
     const db2 = await createRxDatabase({
-      name: 'fitflow6',
+      name: 'fitflow7',
       storage: getRxStorageDexie(),
       multiInstance: false,
       closeDuplicates: true,

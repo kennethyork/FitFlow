@@ -29,7 +29,7 @@ const userProfileSchema = {
 };
 
 const foodLogSchema = {
-  version: 1,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -40,6 +40,9 @@ const foodLogSchema = {
     carbs: { type: 'number' },
     fat: { type: 'number' },
     recipeUrl: { type: 'string' },
+    recipeIngredients: { type: 'string' },
+    recipeSteps: { type: 'string' },
+    recipeSource: { type: 'string' },
     loggedAt: { type: 'string', maxLength: 30 },
   },
   required: ['id', 'meal', 'loggedAt'],
@@ -190,6 +193,7 @@ const collections = {
     schema: foodLogSchema,
     migrationStrategies: {
       1: (oldDoc) => ({ ...oldDoc, recipeUrl: '' }),
+      2: (oldDoc) => ({ ...oldDoc, recipeIngredients: '', recipeSteps: '', recipeSource: '' }),
     },
   },
   habits: { schema: habitSchema },
@@ -305,6 +309,9 @@ export async function addFoodLog(data) {
     carbs: data.carbs || 0,
     fat: data.fat || 0,
     recipeUrl: data.recipeUrl || '',
+    recipeIngredients: data.recipeIngredients || '',
+    recipeSteps: data.recipeSteps || '',
+    recipeSource: data.recipeSource || '',
     loggedAt: new Date().toISOString(),
   });
   return doc.toJSON();

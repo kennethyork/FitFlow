@@ -104,6 +104,7 @@ function App() {
   });
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [expandedSuggestion, setExpandedSuggestion] = useState(null);
+  const [expandedLog, setExpandedLog] = useState(null);
 
   const [habits, setHabits] = useState([]);
   const [newHabit, setNewHabit] = useState('');
@@ -684,13 +685,20 @@ function App() {
   };
 
   const logSuggestion = async (meal) => {
+    hapticSuccess();
     const cleanName = meal.name.replace(/^[📖🔗]\s*/, '');
-    setMeal(cleanName);
-    setMealCals(String(meal.calories || ''));
-    setMealProtein(String(meal.protein || ''));
-    setMealCarbs(String(meal.carbs || ''));
-    setMealFat(String(meal.fat || ''));
-    setMealRecipeUrl(meal.recipeUrl || '');
+    const newLog = await db.addFoodLog({
+      meal: cleanName,
+      calories: parseInt(meal.calories, 10) || 0,
+      protein: parseInt(meal.protein, 10) || 0,
+      carbs: parseInt(meal.carbs, 10) || 0,
+      fat: parseInt(meal.fat, 10) || 0,
+      recipeUrl: meal.recipeUrl || '',
+      recipeIngredients: meal.recipe?.ingredients ? JSON.stringify(meal.recipe.ingredients) : '',
+      recipeSteps: meal.recipe?.steps ? JSON.stringify(meal.recipe.steps) : '',
+      recipeSource: meal.recipeSource || '',
+    });
+    setLogs(prev => [newLog, ...prev]);
 
     // Save RSS recipes to user's recipe collection for future reference
     if (meal.recipeUrl) {
@@ -1546,7 +1554,7 @@ function App() {
                 </p>
               )}
               {logs.map((log) => (
-                <div className="meal-item" key={log.id}>
+                <div className="meal-item" key={log.id} style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   {editingLog === log.id ? (
                     <div className="meal-edit-form">
                       <input className="input" value={editMeal} onChange={(e) => setEditMeal(e.target.value)} placeholder="Meal name" />
@@ -1575,36 +1583,61 @@ function App() {
                     </div>
                   ) : (
                     <>
-                      <div className="meal-icon">{mealEmoji(log.meal)}</div>
-                      <div className="meal-info">
-                        <div className="name">
-                          {log.meal}{' '}
-                          <span
-                            className={`food-tag ${colorTag(log.calories)}`}
-                          >
-                            {colorTag(log.calories)}
-                          </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: log.recipeIngredients ? 'pointer' : 'default' }}
+                        onClick={() => log.recipeIngredients && setExpandedLog(expandedLog === log.id ? null : log.id)}>
+                        <div className="meal-icon">{mealEmoji(log.meal)}</div>
+                        <div className="meal-info" style={{ flex: 1 }}>
+                          <div className="name">
+                            {log.meal}{' '}
+                            <span
+                              className={`food-tag ${colorTag(log.calories)}`}
+                            >
+                              {colorTag(log.calories)}
+                            </span>
+                            {log.recipeIngredients && <span style={{ fontSize: 11, marginLeft: 4 }}>{expandedLog === log.id ? '▲' : '▼'}</span>}
+                          </div>
+                          <div className="meta">
+                            {log.protein || 0}g P · {log.carbs || 0}g C · {log.fat || 0}g F · {new Date(log.loggedAt).toLocaleTimeString([], {
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                            {log.recipeSource ? ` · ${log.recipeSource}` : ''}
+                          </div>
                         </div>
-                        <div className="meta">
-                          {log.protein || 0}g P · {log.carbs || 0}g C · {log.fat || 0}g F · {new Date(log.loggedAt).toLocaleTimeString([], {
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                        <div className="meal-cals">{log.calories}</div>
+                        <div className="meal-actions" onClick={(e) => e.stopPropagation()}>
+                          {log.recipeUrl && <a className="meal-action-btn" title="View Recipe" href={log.recipeUrl} target="_blank" rel="noopener noreferrer">📖</a>}
+                          <button className="meal-action-btn" title="Edit" onClick={() => startEditLog(log)}>✏️</button>
+                          {confirmDelete === log.id ? (
+                            <>
+                              <button className="meal-action-btn confirm-del" onClick={() => deleteLog(log.id)}>Yes</button>
+                              <button className="meal-action-btn" onClick={() => setConfirmDelete(null)}>No</button>
+                            </>
+                          ) : (
+                            <button className="meal-action-btn" title="Delete (refunds calories)" onClick={() => setConfirmDelete(log.id)}>🗑️</button>
+                          )}
                         </div>
                       </div>
-                      <div className="meal-cals">{log.calories}</div>
-                      <div className="meal-actions">
-                        {log.recipeUrl && <a className="meal-action-btn" title="View Recipe" href={log.recipeUrl} target="_blank" rel="noopener noreferrer">📖</a>}
-                        <button className="meal-action-btn" title="Edit" onClick={() => startEditLog(log)}>✏️</button>
-                        {confirmDelete === log.id ? (
-                          <>
-                            <button className="meal-action-btn confirm-del" onClick={() => deleteLog(log.id)}>Yes</button>
-                            <button className="meal-action-btn" onClick={() => setConfirmDelete(null)}>No</button>
-                          </>
-                        ) : (
-                          <button className="meal-action-btn" title="Delete (refunds calories)" onClick={() => setConfirmDelete(log.id)}>🗑️</button>
-                        )}
-                      </div>
+                      {expandedLog === log.id && log.recipeIngredients && (() => {
+                        try {
+                          const ingredients = JSON.parse(log.recipeIngredients);
+                          const steps = log.recipeSteps ? JSON.parse(log.recipeSteps) : [];
+                          return (
+                            <div className="suggestion-recipe" style={{ marginTop: 8 }}>
+                              <div className="recipe-section">
+                                <strong>Ingredients</strong>
+                                <ul>{ingredients.map((ing, j) => <li key={j}>{ing}</li>)}</ul>
+                              </div>
+                              {steps.length > 0 && (
+                                <div className="recipe-section">
+                                  <strong>Directions</strong>
+                                  <ol>{steps.map((s, j) => <li key={j}>{s}</li>)}</ol>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        } catch { return null; }
+                      })()}
                     </>
                   )}
                 </div>

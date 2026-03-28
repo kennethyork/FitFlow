@@ -51,7 +51,7 @@ if [ ! -f .env ]; then
 DATABASE_URL="file:./server/prisma/dev.db"
 PORT=4000
 JWT_SECRET=CHANGE_ME_TO_RANDOM_SECRET
-CORS_ORIGIN=https://kennethyork.github.io
+CORS_ORIGIN=https://fitflow.kennethyork.com,https://kennethyork.github.io
 
 # S3 (optional, for progress photos)
 # AWS_REGION=us-east-1

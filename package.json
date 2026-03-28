@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "fetch-feeds": "node scripts/fetch-feeds.mjs",
+    "merge-foods": "node scripts/merge-foods.mjs",
     "build": "npm run fetch-feeds && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

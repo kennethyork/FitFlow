@@ -6,7 +6,7 @@ import OnboardingScreen from './OnboardingScreen';
 import LandingPage from './LandingPage';
 import AccountScreen from './AccountScreen';
 import * as db from './db.js';
-import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, loadFoodDatabase, isFoodDBReady, getFoodCount } from './foodSearch.js';
+import { searchFoods as searchFoodsAPI, getMealSuggestions as getSuggestionsLocal, loadFoodDatabase, isFoodDBReady } from './foodSearch.js';
 import { generateTasks, currentPeriodKeys, pickCoachTask } from './taskGenerator.js';
 
 import { isNative, initStatusBar, readNativeSteps, takePhoto, pickImage, hapticTap, hapticSuccess, hapticWarning, hapticHeavy, subscribePedometer, nativeShare, scheduleNotification, keepAwake } from './native';
@@ -391,19 +391,43 @@ function App() {
   const habitsCompleted = useMemo(() => habits.filter((h) => h.completed).length, [habits]);
   const calGoal = user?.calorieGoal || 1800;
 
-  // Debounced food search — waits 200ms after last keystroke
+  // Debounced food search — waits briefly so we do not spam the public API
   const searchTimerRef = useRef(null);
+  const foodSearchAbortRef = useRef(null);
+  const foodSearchRequestIdRef = useRef(0);
   const searchFoods = useCallback((query) => {
     setFoodSearchQuery(query);
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (foodSearchAbortRef.current) {
+      foodSearchAbortRef.current.abort();
+      foodSearchAbortRef.current = null;
+    }
     if (query.trim().length < 2) { setFoodSearchResults([]); setShowFoodSearch(false); return; }
+    const requestId = foodSearchRequestIdRef.current + 1;
+    foodSearchRequestIdRef.current = requestId;
     searchTimerRef.current = setTimeout(async () => {
+      const controller = new AbortController();
+      foodSearchAbortRef.current = controller;
       try {
-        const results = await searchFoodsAPI(query.trim());
+        const results = await searchFoodsAPI(query.trim(), { signal: controller.signal });
+        if (foodSearchRequestIdRef.current !== requestId) return;
         setFoodSearchResults(results || []);
         setShowFoodSearch(true);
-      } catch { setFoodSearchResults([]); }
-    }, 200);
+      } catch (err) {
+        if (err?.name === 'AbortError') return;
+        if (foodSearchRequestIdRef.current !== requestId) return;
+        setFoodSearchResults([]);
+      } finally {
+        if (foodSearchAbortRef.current === controller) {
+          foodSearchAbortRef.current = null;
+        }
+      }
+    }, 400);
+  }, []);
+
+  useEffect(() => () => {
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    if (foodSearchAbortRef.current) foodSearchAbortRef.current.abort();
   }, []);
 
   const selectFood = (food) => {
@@ -625,7 +649,7 @@ function App() {
     setMealSuggestions([]);
     const remaining = Math.max(0, calGoal - totalCals);
     try {
-      // Get food suggestions from FDC database
+      // Get meal suggestions from recent food-search results / fallback meals
       const foodSuggestions = getSuggestionsLocal(remaining, user?.goalType || 'lose');
 
       // Include user's saved recipes that fit remaining calories

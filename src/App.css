@@ -1838,3 +1838,132 @@ input[type="number"] { -moz-appearance: textfield; }
 .btn-danger:hover {
   background: rgba(220, 53, 69, 0.25);
 }
+
+/* ═══════ COMPARE TAB ═══════ */
+.compare-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.compare-intro-card {
+  text-align: center;
+}
+.compare-intro-text {
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 8px 0 0;
+}
+.compare-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -4px;
+}
+.compare-table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.compare-table th {
+  background: var(--bg-card, #1e1e2e);
+  color: var(--text-primary);
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 700;
+  border-bottom: 2px solid var(--border);
+  white-space: nowrap;
+}
+.compare-table td {
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+.compare-table tr:last-child td {
+  border-bottom: none;
+}
+.compare-table td:first-child {
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+.compare-table td.yes {
+  color: #4CAF50;
+  font-weight: 600;
+}
+.compare-table td.no {
+  color: var(--text-muted, #666);
+}
+.compare-table td.partial {
+  color: #FF9800;
+}
+.compare-app-list {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin-top: 4px;
+}
+.compare-app-item {
+  padding: 12px 14px;
+  background: var(--bg-main);
+  border-radius: 10px;
+  border: 1px solid var(--border);
+}
+.compare-app-name {
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.compare-app-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.compare-badge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.compare-badge.oss {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4CAF50;
+}
+.compare-badge.freemium {
+  background: rgba(255, 152, 0, 0.15);
+  color: #FF9800;
+}
+.compare-badge.paid {
+  background: rgba(244, 67, 54, 0.12);
+  color: #F44336;
+}
+.compare-why-list {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.compare-why-list li {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding-left: 20px;
+  position: relative;
+}
+.compare-why-list li::before {
+  content: '✓';
+  position: absolute;
+  left: 0;
+  color: #4CAF50;
+  font-weight: 700;
+}

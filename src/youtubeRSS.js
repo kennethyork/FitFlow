@@ -151,7 +151,8 @@ async function loadStaticFeeds() {
   if (_staticFeeds) return _staticFeeds;
   try {
     const base = import.meta.env.BASE_URL || '/';
-    const res = await fetch(`${base}data/youtube-feeds.json`);
+    const cacheBust = new Date().toISOString().slice(0, 10);
+    const res = await fetch(`${base}data/youtube-feeds.json?v=${cacheBust}`);
     if (res.ok) _staticFeeds = await res.json();
   } catch { /* ignore */ }
   return _staticFeeds || {};

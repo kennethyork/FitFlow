@@ -13,7 +13,8 @@ async function loadStaticRecipes() {
   if (_staticRecipes) return _staticRecipes;
   try {
     const base = import.meta.env.BASE_URL || '/';
-    const res = await fetch(`${base}data/recipe-feeds.json`);
+    const cacheBust = new Date().toISOString().slice(0, 10);
+    const res = await fetch(`${base}data/recipe-feeds.json?v=${cacheBust}`);
     if (res.ok) _staticRecipes = await res.json();
   } catch { /* ignore */ }
   return _staticRecipes || [];

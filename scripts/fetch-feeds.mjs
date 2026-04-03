@@ -189,10 +189,21 @@ async function fetchUrl(url, retries = 2) {
   return null;
 }
 
+// ── Load existing data to preserve when fetches fail ──
+function loadExisting(filename) {
+  try {
+    const raw = fs.readFileSync(path.join(OUT_DIR, filename), 'utf-8');
+    return JSON.parse(raw);
+  } catch { return null; }
+}
+
 // ── Main ──
 async function main() {
   console.log('🔄 Fetching RSS feeds...');
   fs.mkdirSync(OUT_DIR, { recursive: true });
+
+  const existingYt = loadExisting('youtube-feeds.json');
+  const existingRecipes = loadExisting('recipe-feeds.json');
 
   // 1. YouTube feeds — deduplicate channels across categories
   const uniqueChannels = new Map();
@@ -213,14 +224,21 @@ async function main() {
 
   await Promise.allSettled(ytFetches);
 
-  // Build per-category video lists
+  // Build per-category video lists, preserving existing data when fetch returns empty
   const youtubeData = {};
   for (const [category, channels] of Object.entries(CHANNELS)) {
     const videos = [];
     for (const ch of channels) {
       if (channelVideos[ch.id]) videos.push(...channelVideos[ch.id]);
     }
-    youtubeData[category] = videos;
+    if (videos.length > 0) {
+      youtubeData[category] = videos;
+    } else if (existingYt && existingYt[category]?.length > 0) {
+      youtubeData[category] = existingYt[category];
+      console.log(`  YouTube: keeping existing ${existingYt[category].length} videos for "${category}" (fetch returned 0)`);
+    } else {
+      youtubeData[category] = [];
+    }
   }
 
   const ytCount = Object.values(youtubeData).reduce((s, v) => s + v.length, 0);
@@ -243,9 +261,16 @@ async function main() {
   await Promise.allSettled(recipeFetches);
   console.log(`  Recipes: ${allRecipes.length} total items`);
 
+  // Preserve existing recipes if new fetch got nothing
+  const finalRecipes = allRecipes.length > 0 ? allRecipes
+    : (existingRecipes?.length > 0 ? existingRecipes : []);
+  if (allRecipes.length === 0 && existingRecipes?.length > 0) {
+    console.log(`  Recipes: keeping existing ${existingRecipes.length} items (fetch returned 0)`);
+  }
+
   fs.writeFileSync(
     path.join(OUT_DIR, 'recipe-feeds.json'),
-    JSON.stringify(allRecipes),
+    JSON.stringify(finalRecipes),
   );
 
   console.log('✅ RSS feeds saved to public/data/');
